@@ -46,6 +46,8 @@ function group(members: GroupMember[]): Group {
     channels: [channel],
     members,
     meetings: [],
+    spaces: [{ id: "space_1", name: "Geral", icon: "📁", createdAt: "2026-01-01T00:00:00.000Z" }],
+    pages: [],
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }

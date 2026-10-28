@@ -30,6 +30,7 @@ import {
 } from "../ui/sidebar";
 import { AppAreaTabs } from "./AppAreaTabs";
 import { CreateGroupDialog } from "./CreateGroupDialog";
+import { GroupPagesSidebar } from "./GroupPagesSidebar";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -46,9 +47,11 @@ export function GroupsSidebar() {
   const location = useLocation({
     select: (current) => ({ pathname: current.pathname, searchStr: current.searchStr }),
   });
-  const { groupId, channelId } = parseGroupsLocation(location.pathname, location.searchStr);
+  const { groupId, channelId, pageId } = parseGroupsLocation(location.pathname, location.searchStr);
   const activeGroup = groups.find((group) => group.id === groupId) ?? null;
   const [createOpen, setCreateOpen] = useState(false);
+  const addPage = useGroupsStore((store) => store.addPage);
+  const addSpace = useGroupsStore((store) => store.addSpace);
 
   const providerEntries = activeGroup?.projectRef
     ? deriveProviderInstanceEntries(
@@ -62,6 +65,20 @@ export function GroupsSidebar() {
       params: { groupId: targetGroupId },
       search: { channel: targetChannelId },
     });
+  };
+
+  const openPage = (targetGroupId: string, targetPageId: string) => {
+    void navigate({
+      to: "/groups/$groupId",
+      params: { groupId: targetGroupId },
+      search: { page: targetPageId },
+    });
+  };
+
+  const newPage = (targetGroupId: string, spaceId: string) => {
+    const created = addPage(targetGroupId, { spaceId });
+    if (created === null) return;
+    openPage(targetGroupId, created);
   };
 
   return (
@@ -126,6 +143,18 @@ export function GroupsSidebar() {
 
         {activeGroup ? (
           <>
+            <SidebarGroup>
+              <GroupPagesSidebar
+                activePageId={pageId}
+                group={activeGroup}
+                onNewPage={(spaceId) => newPage(activeGroup.id, spaceId)}
+                onNewSpace={(name) => {
+                  addSpace(activeGroup.id, name);
+                }}
+                onOpenPage={(targetPageId) => openPage(activeGroup.id, targetPageId)}
+              />
+            </SidebarGroup>
+
             <SidebarGroup>
               <div className="flex items-center justify-between pr-1 pl-2">
                 <SectionLabel>Canais</SectionLabel>

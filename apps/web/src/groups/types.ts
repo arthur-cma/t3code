@@ -49,6 +49,25 @@ export interface GroupMeeting {
   participants: string[];
 }
 
+export interface GroupSpace {
+  id: string;
+  name: string;
+  icon: string;
+  createdAt: string;
+}
+
+export interface GroupPage {
+  id: string;
+  spaceId: string;
+  parentId: string | null;
+  title: string;
+  icon: string;
+  content: string;
+  favorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Group {
   id: string;
   name: string;
@@ -60,6 +79,8 @@ export interface Group {
   channels: GroupChannel[];
   members: GroupMember[];
   meetings: GroupMeeting[];
+  spaces: GroupSpace[];
+  pages: GroupPage[];
   createdAt: string;
 }
 

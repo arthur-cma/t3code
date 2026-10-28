@@ -13,13 +13,15 @@ import {
   type GroupMeeting,
   type GroupMember,
   type GroupMessage,
+  type GroupPage,
   type GroupProjectRef,
   type GroupSettings,
+  type GroupSpace,
   type GroupThreadLink,
 } from "./types";
 
 const GROUPS_STORAGE_KEY = "t3code:groups:v1";
-const GROUPS_STORAGE_VERSION = 2;
+const GROUPS_STORAGE_VERSION = 3;
 
 function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
@@ -36,6 +38,33 @@ function createGroupChannel(
 
 function createGroupMember(member: Omit<GroupMember, "id">): GroupMember {
   return { ...member, id: createId("member") };
+}
+
+const DEFAULT_SPACE_ICON = "📁";
+
+function createGroupSpace(name: string, icon = DEFAULT_SPACE_ICON): GroupSpace {
+  return { id: createId("space"), name, icon, createdAt: new Date().toISOString() };
+}
+
+function createGroupPage(input: {
+  spaceId: string;
+  parentId: string | null;
+  title: string;
+  icon?: string;
+  content?: string;
+}): GroupPage {
+  const now = new Date().toISOString();
+  return {
+    id: createId("page"),
+    spaceId: input.spaceId,
+    parentId: input.parentId,
+    title: input.title.trim() || "Sem título",
+    icon: input.icon ?? "📄",
+    content: input.content ?? "",
+    favorite: false,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 interface CreateGroupInput {
@@ -83,6 +112,22 @@ interface GroupsState {
     patch: Partial<Omit<GroupMeeting, "id">>,
   ) => void;
   deleteMeeting: (groupId: string, meetingId: string) => void;
+
+  addSpace: (groupId: string, name: string, icon?: string) => string | null;
+  updateSpace: (groupId: string, spaceId: string, patch: Partial<Omit<GroupSpace, "id">>) => void;
+  deleteSpace: (groupId: string, spaceId: string) => boolean;
+
+  addPage: (
+    groupId: string,
+    input: { spaceId?: string | null; parentId?: string | null; title?: string; icon?: string },
+  ) => string | null;
+  updatePage: (
+    groupId: string,
+    pageId: string,
+    patch: Partial<Omit<GroupPage, "id" | "createdAt" | "updatedAt">>,
+  ) => void;
+  deletePage: (groupId: string, pageId: string) => void;
+  togglePageFavorite: (groupId: string, pageId: string) => void;
 
   addMessage: (message: GroupMessage) => void;
   appendUserMessage: (input: {
@@ -137,7 +182,28 @@ export function firstTextChannel(group: Group): GroupChannel | null {
   return textChannels(group)[0] ?? group.channels[0] ?? null;
 }
 
-/** Persisted v1 groups predate DMs, roles, hierarchy and meetings. */
+export function firstSpace(group: Group): GroupSpace | null {
+  return group.spaces[0] ?? null;
+}
+
+export function pageById(group: Group, pageId: string | null): GroupPage | null {
+  if (pageId === null) return null;
+  return group.pages.find((page) => page.id === pageId) ?? null;
+}
+
+export function recentPages(group: Group, limit = 6): GroupPage[] {
+  return [...group.pages]
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, limit);
+}
+
+export function favoritePages(group: Group): GroupPage[] {
+  return group.pages
+    .filter((page) => page.favorite)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+/** Persisted v1 groups predate DMs, roles, hierarchy, meetings, spaces and pages. */
 function migrateGroups(persisted: unknown): Group[] {
   if (!Array.isArray(persisted)) return [];
   return persisted.flatMap((value): Group[] => {
@@ -148,6 +214,21 @@ function migrateGroups(persisted: unknown): Group[] {
       ...member,
       role: member.role ?? "",
       reportsTo: member.reportsTo ?? null,
+    }));
+    const spaces =
+      Array.isArray(group.spaces) && group.spaces.length > 0
+        ? group.spaces
+        : [createGroupSpace("Geral")];
+    const firstSpaceId = spaces[0]?.id ?? null;
+    const pages = (group.pages ?? []).map((page) => ({
+      ...page,
+      spaceId: page.spaceId ?? firstSpaceId ?? "",
+      parentId: page.parentId ?? null,
+      icon: page.icon ?? "📄",
+      content: page.content ?? "",
+      favorite: page.favorite ?? false,
+      createdAt: page.createdAt ?? new Date().toISOString(),
+      updatedAt: page.updatedAt ?? page.createdAt ?? new Date().toISOString(),
     }));
     return [
       {
@@ -166,6 +247,8 @@ function migrateGroups(persisted: unknown): Group[] {
           memberId: channel.memberId ?? null,
         })),
         meetings: group.meetings ?? [],
+        spaces,
+        pages,
         createdAt: group.createdAt ?? new Date().toISOString(),
       },
     ];
@@ -196,6 +279,8 @@ export const useGroupsStore = create<GroupsState>()(
           channels: [createGroupChannel("geral", "Conversa principal do grupo")],
           members: [],
           meetings: [],
+          spaces: [createGroupSpace("Geral")],
+          pages: [],
           createdAt: new Date().toISOString(),
         };
         set((state) => ({
@@ -420,6 +505,144 @@ export const useGroupsStore = create<GroupsState>()(
         }));
       },
 
+      addSpace: (groupId, name, icon) => {
+        const trimmed = name.trim();
+        if (trimmed.length === 0) return null;
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return null;
+        const duplicate = group.spaces.some(
+          (space) => space.name.toLowerCase() === trimmed.toLowerCase(),
+        );
+        if (duplicate) return null;
+        const space = createGroupSpace(trimmed, icon);
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? { ...candidate, spaces: [...candidate.spaces, space] }
+              : candidate,
+          ),
+        }));
+        return space.id;
+      },
+
+      updateSpace: (groupId, spaceId, patch) => {
+        set((state) => ({
+          groups: state.groups.map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  spaces: group.spaces.map((space) =>
+                    space.id === spaceId ? { ...space, ...patch } : space,
+                  ),
+                }
+              : group,
+          ),
+        }));
+      },
+
+      deleteSpace: (groupId, spaceId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return false;
+        if (group.spaces.length <= 1) return false;
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? {
+                  ...candidate,
+                  spaces: candidate.spaces.filter((space) => space.id !== spaceId),
+                  pages: candidate.pages.filter((page) => page.spaceId !== spaceId),
+                }
+              : candidate,
+          ),
+        }));
+        return true;
+      },
+
+      addPage: (groupId, input) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return null;
+        const spaceId = input.spaceId ?? group.spaces[0]?.id ?? null;
+        if (spaceId === null) return null;
+        const page = createGroupPage({
+          spaceId,
+          parentId: input.parentId ?? null,
+          title: input.title ?? "Sem título",
+          ...(input.icon === undefined ? {} : { icon: input.icon }),
+        });
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? { ...candidate, pages: [...candidate.pages, page] }
+              : candidate,
+          ),
+        }));
+        return page.id;
+      },
+
+      updatePage: (groupId, pageId, patch) => {
+        set((state) => ({
+          groups: state.groups.map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  pages: group.pages.map((page) =>
+                    page.id === pageId
+                      ? { ...page, ...patch, updatedAt: new Date().toISOString() }
+                      : page,
+                  ),
+                }
+              : group,
+          ),
+        }));
+      },
+
+      deletePage: (groupId, pageId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return;
+        const doomed = new Set<string>([pageId]);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (const page of group.pages) {
+            if (page.parentId !== null && doomed.has(page.parentId) && !doomed.has(page.id)) {
+              doomed.add(page.id);
+              grew = true;
+            }
+          }
+        }
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? {
+                  ...candidate,
+                  pages: candidate.pages
+                    .filter((page) => !doomed.has(page.id))
+                    .map((page) =>
+                      page.parentId !== null && doomed.has(page.parentId)
+                        ? { ...page, parentId: null }
+                        : page,
+                    ),
+                }
+              : candidate,
+          ),
+        }));
+      },
+
+      togglePageFavorite: (groupId, pageId) => {
+        set((state) => ({
+          groups: state.groups.map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  pages: group.pages.map((page) =>
+                    page.id === pageId ? { ...page, favorite: !page.favorite } : page,
+                  ),
+                }
+              : group,
+          ),
+        }));
+      },
+
       addMessage: (message) => {
         set((state) => ({
           messages: {
@@ -523,7 +746,7 @@ export const useGroupsStore = create<GroupsState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       migrate: (persisted, version) => {
-        if (version < 2) {
+        if (version < 3) {
           const state = persisted as { groups?: unknown } | null;
           return { ...state, groups: migrateGroups(state?.groups) } as unknown as GroupsState;
         }
