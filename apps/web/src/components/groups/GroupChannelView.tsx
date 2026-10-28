@@ -15,23 +15,16 @@ import { isElectron } from "../../env";
 import {
   applyMention,
   findMentionQuery,
-  groupInitials,
   mentionCandidates,
   type MentionQuery,
 } from "../../groups/groupLogic";
 import { channelMessages, threadLinksForChannel, useGroupsStore } from "../../groups/groupStore";
 import { GroupThreadSync, type GroupReplyLink } from "../../groups/GroupThreadSync";
 import { useGroupSend } from "../../groups/useGroupSend";
-import {
-  GROUP_ACCENT_CLASSES,
-  GROUP_REPLY_MODE_LABELS,
-  type Group,
-  type GroupChannel,
-} from "../../groups/types";
+import type { Group, GroupChannel } from "../../groups/types";
 import { useProjects } from "../../state/entities";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { SidebarInset } from "../ui/sidebar";
@@ -101,14 +94,6 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
       },
     ];
   });
-
-  const insertMention = (handle: string) => {
-    setDraft((current) => {
-      const separator = current.length === 0 || /\s$/.test(current) ? "" : " ";
-      return `${current}${separator}@${handle} `;
-    });
-    composerRef.current?.focus();
-  };
 
   const selectCandidate = (handle: string) => {
     if (mention === null) return;
@@ -287,51 +272,6 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
                 </div>
               ) : (
                 <>
-                  {isDm ? null : (
-                    <div className="mb-2 flex flex-wrap items-center gap-1">
-                      <span className="mr-1 text-xs text-muted-foreground">Mencionar</span>
-                      {group.members.map((member) => (
-                        <button
-                          className="flex items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
-                          key={member.id}
-                          onClick={() => insertMention(member.handle)}
-                          type="button"
-                        >
-                          <ProviderInstanceIcon
-                            badgeContent="none"
-                            displayName={member.name}
-                            driverKind={member.driverKind as never}
-                            size="compact"
-                          />
-                          @{member.handle}
-                          {member.autoRespond ? (
-                            <span
-                              aria-label="Responde automaticamente"
-                              className="size-1 rounded-full bg-success"
-                            />
-                          ) : null}
-                        </button>
-                      ))}
-                      {group.people.map((person) => (
-                        <button
-                          className="flex items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
-                          key={person.id}
-                          onClick={() => insertMention(person.handle)}
-                          type="button"
-                        >
-                          <span
-                            className={`flex size-5 items-center justify-center rounded-full text-2xs font-semibold ${GROUP_ACCENT_CLASSES[person.accent]}`}
-                          >
-                            {groupInitials(person.name)}
-                          </span>
-                          @{person.handle}
-                        </button>
-                      ))}
-                      <Badge className="ml-auto" size="sm" variant="secondary">
-                        {GROUP_REPLY_MODE_LABELS[group.replyMode]}
-                      </Badge>
-                    </div>
-                  )}
                   <div className="relative">
                     {mentionOpen ? (
                       <MentionSuggestions
