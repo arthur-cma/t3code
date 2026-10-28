@@ -702,7 +702,10 @@ export const useGroupsStore = create<GroupsState>()(
         if (name.length === 0) return null;
         const group = get().groups.find((candidate) => candidate.id === groupId);
         if (group === undefined) return null;
-        const handle = uniquePersonHandle(person.handle || name, group.people);
+        const handle = uniquePersonHandle(person.handle || name, [
+          ...group.people,
+          ...group.members,
+        ]);
         const created = createGroupPerson({
           name,
           handle,

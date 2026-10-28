@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildAgentPrompt,
   groupInitials,
+  mentionCandidates,
   normalizeHandle,
   parseMentions,
   resolveResponders,
@@ -70,6 +71,18 @@ describe("groupLogic", () => {
     expect(normalizeHandle("  João Pedro!! ")).toBe("joao-pedro");
     expect(normalizeHandle("###")).toBe("");
     expect(uniqueHandle("ana", ["ana", "ana-2"])).toBe("ana-3");
+  });
+
+  it("offers agents and people as mention candidates", () => {
+    const studio = group([ana, bia]);
+    const all = mentionCandidates(studio, "");
+    expect(all.map((candidate) => `${candidate.kind}:${candidate.handle}`)).toEqual([
+      "agent:ana",
+      "agent:bia",
+      "person:voce",
+    ]);
+    expect(mentionCandidates(studio, "vo").map((candidate) => candidate.handle)).toEqual(["voce"]);
+    expect(mentionCandidates(studio, "zzz")).toEqual([]);
   });
 
   it("finds mentions case-insensitively and ignores unknown handles", () => {

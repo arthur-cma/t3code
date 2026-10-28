@@ -1,4 +1,4 @@
-import type { Group, GroupChannel, GroupMember, GroupReplyMode } from "./types";
+import type { Group, GroupChannel, GroupMember, GroupPerson, GroupReplyMode } from "./types";
 
 const MENTION_PATTERN = /@([a-z0-9][a-z0-9_-]*)/gi;
 
@@ -102,6 +102,57 @@ export function filterMentionCandidates(
   });
   scored.sort((left, right) => left.score - right.score);
   return scored.slice(0, limit).map((entry) => entry.member);
+}
+
+export interface MentionCandidate {
+  kind: "agent" | "person";
+  id: string;
+  name: string;
+  handle: string;
+  role: string;
+  member: GroupMember | null;
+  person: GroupPerson | null;
+}
+
+/**
+ * Everyone who can be mentioned in the composer: agents first, then the people in the group.
+ * Mentions of people mark the message for them without triggering an agent reply.
+ */
+export function mentionCandidates(group: Group, query: string, limit = 8): MentionCandidate[] {
+  const agents = filterMentionCandidates(group.members, query, limit).map(
+    (member): MentionCandidate => ({
+      kind: "agent",
+      id: member.id,
+      name: member.name,
+      handle: member.handle,
+      role: member.role,
+      member,
+      person: null,
+    }),
+  );
+  const remaining = Math.max(limit - agents.length, 0);
+  if (remaining === 0) return agents;
+  const needle = normalizeSearch(query.trim());
+  const people = group.people
+    .filter((person) => {
+      if (needle.length === 0) return true;
+      return (
+        normalizeSearch(person.handle).includes(needle) ||
+        normalizeSearch(person.name).includes(needle) ||
+        normalizeSearch(person.role).includes(needle)
+      );
+    })
+    .slice(0, remaining)
+    .map((person): MentionCandidate => ({
+      kind: "person",
+      id: person.id,
+      name: person.name,
+      handle: person.handle,
+      role: person.role,
+      member: null,
+      person,
+    }));
+  return [...agents, ...people];
 }
 
 export function resolveResponders(input: {

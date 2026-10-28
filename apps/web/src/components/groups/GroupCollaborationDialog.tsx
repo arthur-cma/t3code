@@ -88,10 +88,10 @@ export function GroupCollaborationDialog({
     if (name.length === 0) return;
     addPerson(group.id, {
       name,
-      handle: uniquePersonHandle(
-        personHandle.trim().length > 0 ? personHandle : name,
-        group.people,
-      ),
+      handle: uniquePersonHandle(personHandle.trim().length > 0 ? personHandle : name, [
+        ...group.people,
+        ...group.members,
+      ]),
       role: personRole.trim(),
     });
     setPersonName("");
