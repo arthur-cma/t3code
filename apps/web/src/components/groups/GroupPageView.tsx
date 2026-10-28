@@ -28,6 +28,8 @@ import ChatMarkdown from "../ChatMarkdown";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
 import { SidebarInset } from "../ui/sidebar";
+import { GroupConfirmDialog } from "./GroupActionDialogs";
+import { CreatePageDialog } from "./GroupCreateDialogs";
 import { GroupPageDiscussDialog } from "./GroupPageDiscussDialog";
 import { GroupPageGraph } from "./GroupPageGraph";
 
@@ -74,6 +76,7 @@ export function GroupPageView({
   );
   const [discussOpen, setDiscussOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [subpageOpen, setSubpageOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -147,8 +150,7 @@ export function GroupPageView({
   };
 
   const addSubpage = () => {
-    const created = addPage(group.id, { spaceId: page.spaceId, parentId: page.id });
-    if (created !== null) onOpenPage(created);
+    setSubpageOpen(true);
   };
 
   const scrollToHeading = (id: string) => {
@@ -218,32 +220,14 @@ export function GroupPageView({
         >
           <MessageSquareIcon />
         </Button>
-        {confirmDelete ? (
-          <div className="flex items-center gap-1">
-            <Button
-              onClick={() => {
-                deletePage(group.id, page.id);
-                setConfirmDelete(false);
-              }}
-              size="sm"
-              variant="destructive"
-            >
-              Excluir
-            </Button>
-            <Button onClick={() => setConfirmDelete(false)} size="sm" variant="ghost">
-              Cancelar
-            </Button>
-          </div>
-        ) : (
-          <Button
-            aria-label="Excluir página"
-            onClick={() => setConfirmDelete(true)}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <Trash2Icon />
-          </Button>
-        )}
+        <Button
+          aria-label="Excluir página"
+          onClick={() => setConfirmDelete(true)}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <Trash2Icon />
+        </Button>
       </WorkspacePageHeader>
 
       <div className="flex min-h-0 flex-1">
@@ -446,6 +430,28 @@ export function GroupPageView({
         onOpenChange={setGraphOpen}
         onOpenPage={onOpenPage}
         open={graphOpen}
+      />
+      <CreatePageDialog
+        defaultParentId={page.id}
+        defaultSpaceId={page.spaceId}
+        group={group}
+        onCreated={(pageId) => {
+          setSubpageOpen(false);
+          onOpenPage(pageId);
+        }}
+        onOpenChange={setSubpageOpen}
+        open={subpageOpen}
+      />
+      <GroupConfirmDialog
+        confirmLabel="Excluir página"
+        description="A página e as subpáginas dela serão removidas. Esta ação não pode ser desfeita."
+        onConfirm={() => {
+          setConfirmDelete(false);
+          deletePage(group.id, page.id);
+        }}
+        onOpenChange={setConfirmDelete}
+        open={confirmDelete}
+        title={`Excluir página ${page.title}?`}
       />
     </SidebarInset>
   );

@@ -1,6 +1,8 @@
-import { BotIcon, SettingsIcon, UserIcon } from "lucide-react";
+import { AtSignIcon, BotIcon, SettingsIcon, Trash2Icon, UserIcon } from "lucide-react";
+import { useState } from "react";
 
 import { groupInitials } from "../../groups/groupLogic";
+import { useGroupsStore } from "../../groups/groupStore";
 import {
   GROUP_ACCENT_CLASSES,
   type Group,
@@ -9,10 +11,25 @@ import {
 } from "../../groups/types";
 import { cn } from "../../lib/utils";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { GroupConfirmDialog } from "./GroupActionDialogs";
+import {
+  GroupContextMenu,
+  useGroupContextMenu,
+  type GroupContextMenuItem,
+} from "./GroupContextMenu";
 
-function PersonRow({ person }: { person: GroupPerson }) {
+function PersonRow({
+  person,
+  onContextMenu,
+}: {
+  person: GroupPerson;
+  onContextMenu: (event: React.MouseEvent, person: GroupPerson) => void;
+}) {
   return (
-    <li className="flex items-center gap-2 rounded-md px-2 py-1.5">
+    <li
+      className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/60"
+      onContextMenu={(event) => onContextMenu(event, person)}
+    >
       <span
         className={cn(
           "flex size-7 shrink-0 items-center justify-center rounded-full text-2xs font-semibold",
@@ -44,15 +61,20 @@ function MemberRow({
   bindingCount,
   onOpenDm,
   onConfigure,
+  onContextMenu,
 }: {
   member: GroupMember;
   person: GroupPerson | null;
   bindingCount: number;
   onOpenDm: (member: GroupMember) => void;
   onConfigure: (member: GroupMember) => void;
+  onContextMenu: (event: React.MouseEvent, member: GroupMember) => void;
 }) {
   return (
-    <li className="group flex items-center gap-1 rounded-md pr-1 hover:bg-accent/60">
+    <li
+      className="group flex items-center gap-1 rounded-md pr-1 hover:bg-accent/60"
+      onContextMenu={(event) => onContextMenu(event, member)}
+    >
       <button
         className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => onOpenDm(member)}
@@ -102,6 +124,10 @@ function MemberRow({
   );
 }
 
+type ConfirmTarget =
+  | { kind: "agent"; id: string; name: string }
+  | { kind: "person"; id: string; name: string };
+
 export function GroupMembersPanel({
   group,
   onOpenDm,
@@ -113,6 +139,62 @@ export function GroupMembersPanel({
   onConfigure: (member: GroupMember) => void;
   className?: string;
 }) {
+  const removeMember = useGroupsStore((store) => store.removeMember);
+  const removePerson = useGroupsStore((store) => store.removePerson);
+  const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
+  const agentMenu = useGroupContextMenu<GroupMember>();
+  const personMenu = useGroupContextMenu<GroupPerson>();
+
+  const agentItems = (member: GroupMember): GroupContextMenuItem[] => [
+    {
+      id: "dm",
+      label: "Abrir conversa direta",
+      icon: <BotIcon />,
+      onSelect: () => onOpenDm(member),
+    },
+    {
+      id: "configure",
+      label: "Configurar agente",
+      icon: <SettingsIcon />,
+      onSelect: () => onConfigure(member),
+    },
+    {
+      id: "remove",
+      label: "Remover agente",
+      icon: <Trash2Icon />,
+      separatorBefore: true,
+      variant: "destructive",
+      onSelect: () => setConfirm({ kind: "agent", id: member.id, name: member.name }),
+    },
+  ];
+
+  const personItems = (person: GroupPerson): GroupContextMenuItem[] => [
+    {
+      id: "copy-handle",
+      label: "Copiar @handle",
+      icon: <AtSignIcon />,
+      onSelect: () => {
+        void navigator.clipboard.writeText(`@${person.handle}`);
+      },
+    },
+    {
+      id: "remove",
+      label: "Remover pessoa",
+      icon: <Trash2Icon />,
+      separatorBefore: true,
+      variant: "destructive",
+      disabled: person.isOwner,
+      onSelect: () => setConfirm({ kind: "person", id: person.id, name: person.name }),
+    },
+  ];
+
+  const submitConfirm = () => {
+    if (confirm === null) return;
+    if (confirm.kind === "agent") removeMember(group.id, confirm.id);
+    else removePerson(group.id, confirm.id);
+    setConfirm(null);
+  };
+
   return (
     <aside
       aria-label="Membros do grupo"
@@ -141,7 +223,7 @@ export function GroupMembersPanel({
         ) : (
           <ul>
             {group.people.map((person) => (
-              <PersonRow key={person.id} person={person} />
+              <PersonRow key={person.id} onContextMenu={personMenu.openMenu} person={person} />
             ))}
           </ul>
         )}
@@ -164,6 +246,7 @@ export function GroupMembersPanel({
                 key={member.id}
                 member={member}
                 onConfigure={onConfigure}
+                onContextMenu={agentMenu.openMenu}
                 onOpenDm={onOpenDm}
                 person={
                   member.personId === null
@@ -176,8 +259,39 @@ export function GroupMembersPanel({
         )}
       </div>
       <p className="border-t border-border/60 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
-        Clique em um agente para abrir a conversa direta ou use a engrenagem para configurar.
+        Clique em um agente para abrir a conversa direta. Botão direito abre mais ações.
       </p>
+
+      <GroupContextMenu
+        items={agentMenu.state === null ? [] : agentItems(agentMenu.state.target)}
+        onClose={agentMenu.closeMenu}
+        point={agentMenu.state?.point ?? null}
+      />
+      <GroupContextMenu
+        items={personMenu.state === null ? [] : personItems(personMenu.state.target)}
+        onClose={personMenu.closeMenu}
+        point={personMenu.state?.point ?? null}
+      />
+      <GroupConfirmDialog
+        confirmLabel={confirm?.kind === "agent" ? "Remover agente" : "Remover pessoa"}
+        description={
+          confirm?.kind === "agent"
+            ? "O agente sai do grupo e das conversas diretas. As threads dele continuam no T3 Code."
+            : "A pessoa sai do grupo, das conversas e das conexões de IA."
+        }
+        onConfirm={submitConfirm}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+        open={confirm !== null}
+        title={
+          confirm === null
+            ? "Confirmar?"
+            : confirm.kind === "agent"
+              ? `Remover ${confirm.name}?`
+              : `Remover ${confirm.name}?`
+        }
+      />
     </aside>
   );
 }

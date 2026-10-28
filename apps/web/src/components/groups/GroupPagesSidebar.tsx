@@ -1,13 +1,30 @@
-import { ChevronRightIcon, ClockIcon, PlusIcon, StarIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  ClockIcon,
+  FilePlus2Icon,
+  FileTextIcon,
+  FolderPlusIcon,
+  PencilIcon,
+  PlusIcon,
+  StarIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useState } from "react";
 
 import { buildPageTree, searchPages, type PageTreeNode } from "../../groups/pageLogic";
-import { favoritePages, recentPages } from "../../groups/groupStore";
-import type { Group, GroupPage } from "../../groups/types";
+import { favoritePages, recentPages, useGroupsStore } from "../../groups/groupStore";
+import type { Group, GroupPage, GroupSpace } from "../../groups/types";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import { GroupConfirmDialog, GroupTextDialog } from "./GroupActionDialogs";
+import {
+  GroupContextMenu,
+  useGroupContextMenu,
+  type GroupContextMenuItem,
+} from "./GroupContextMenu";
+import { CreatePageDialog, CreateSpaceDialog } from "./GroupCreateDialogs";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -17,23 +34,38 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function pageSubtreeIds(pages: ReadonlyArray<GroupPage>, pageId: string): Set<string> {
+  const doomed = new Set<string>([pageId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const page of pages) {
+      if (page.parentId !== null && doomed.has(page.parentId) && !doomed.has(page.id)) {
+        doomed.add(page.id);
+        grew = true;
+      }
+    }
+  }
+  return doomed;
+}
+
 function PageRow({
   page,
-  depth,
   active,
   onOpenPage,
+  onContextMenu,
 }: {
   page: GroupPage;
-  depth: number;
   active: boolean;
   onOpenPage: (pageId: string) => void;
+  onContextMenu: (event: React.MouseEvent, page: GroupPage) => void;
 }) {
   return (
     <SidebarMenuButton
       isActive={active}
       onClick={() => onOpenPage(page.id)}
+      onContextMenu={(event) => onContextMenu(event, page)}
       size="sm"
-      style={{ paddingLeft: `${8 + depth * 12}px` }}
     >
       <span aria-hidden className="shrink-0 text-xs leading-none">
         {page.icon}
@@ -49,11 +81,13 @@ function TreeBranch({
   depth,
   activePageId,
   onOpenPage,
+  onPageContextMenu,
 }: {
   node: PageTreeNode;
   depth: number;
   activePageId: string | null;
   onOpenPage: (pageId: string) => void;
+  onPageContextMenu: (event: React.MouseEvent, page: GroupPage) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children.length > 0;
@@ -83,7 +117,7 @@ function TreeBranch({
         <div className="min-w-0 flex-1">
           <PageRow
             active={node.page.id === activePageId}
-            depth={0}
+            onContextMenu={onPageContextMenu}
             onOpenPage={onOpenPage}
             page={node.page}
           />
@@ -98,6 +132,7 @@ function TreeBranch({
               key={child.page.id}
               node={child}
               onOpenPage={onOpenPage}
+              onPageContextMenu={onPageContextMenu}
             />
           ))}
         </div>
@@ -106,41 +141,148 @@ function TreeBranch({
   );
 }
 
+type RenameTarget =
+  | { kind: "page"; id: string; value: string; label: string }
+  | { kind: "space"; id: string; value: string; label: string };
+
+type DeleteTarget =
+  | { kind: "page"; id: string; name: string }
+  | { kind: "space"; id: string; name: string };
+
 export function GroupPagesSidebar({
   group,
   activePageId,
   onOpenPage,
-  onNewPage,
-  onNewSpace,
+  onClearPage,
 }: {
   group: Group;
   activePageId: string | null;
   onOpenPage: (pageId: string) => void;
-  onNewPage: (spaceId: string) => void;
-  onNewSpace: (name: string) => void;
+  onClearPage: () => void;
 }) {
-  const [spaceDraft, setSpaceDraft] = useState("");
-  const [creatingSpace, setCreatingSpace] = useState(false);
+  const updatePage = useGroupsStore((store) => store.updatePage);
+  const deletePage = useGroupsStore((store) => store.deletePage);
+  const togglePageFavorite = useGroupsStore((store) => store.togglePageFavorite);
+  const updateSpace = useGroupsStore((store) => store.updateSpace);
+  const deleteSpace = useGroupsStore((store) => store.deleteSpace);
+
   const [query, setQuery] = useState("");
+  const [spaceDialogOpen, setSpaceDialogOpen] = useState(false);
+  const [pageDraft, setPageDraft] = useState<{ spaceId: string; parentId: string | null } | null>(
+    null,
+  );
+  const [rename, setRename] = useState<RenameTarget | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<DeleteTarget | null>(null);
+  const pageMenu = useGroupContextMenu<GroupPage>();
+  const spaceMenu = useGroupContextMenu<GroupSpace>();
+  const sectionMenu = useGroupContextMenu<null>();
+
   const favorites = favoritePages(group);
   const recents = recentPages(group, 5);
   const results = query.trim().length > 0 ? searchPages(group.pages, query, 12) : [];
   const searching = query.trim().length > 0;
 
-  const submitSpace = () => {
-    const name = spaceDraft.trim();
-    if (name.length > 0) onNewSpace(name);
-    setSpaceDraft("");
-    setCreatingSpace(false);
+  const pageItems = (page: GroupPage): GroupContextMenuItem[] => [
+    {
+      id: "open",
+      label: "Abrir página",
+      icon: <FileTextIcon />,
+      onSelect: () => onOpenPage(page.id),
+    },
+    {
+      id: "rename",
+      label: "Renomear página",
+      icon: <PencilIcon />,
+      onSelect: () =>
+        setRename({ kind: "page", id: page.id, value: page.title, label: "Título da página" }),
+    },
+    {
+      id: "subpage",
+      label: "Nova subpágina",
+      icon: <FilePlus2Icon />,
+      onSelect: () => setPageDraft({ spaceId: page.spaceId, parentId: page.id }),
+    },
+    {
+      id: "favorite",
+      label: page.favorite ? "Remover dos favoritos" : "Favoritar página",
+      icon: <StarIcon />,
+      onSelect: () => togglePageFavorite(group.id, page.id),
+    },
+    {
+      id: "delete",
+      label: "Excluir página",
+      icon: <Trash2Icon />,
+      separatorBefore: true,
+      variant: "destructive",
+      onSelect: () => setConfirmDelete({ kind: "page", id: page.id, name: page.title }),
+    },
+  ];
+
+  const spaceItems = (space: GroupSpace): GroupContextMenuItem[] => [
+    {
+      id: "new-page",
+      label: "Nova página",
+      icon: <FilePlus2Icon />,
+      onSelect: () => setPageDraft({ spaceId: space.id, parentId: null }),
+    },
+    {
+      id: "rename",
+      label: "Renomear espaço",
+      icon: <PencilIcon />,
+      onSelect: () =>
+        setRename({ kind: "space", id: space.id, value: space.name, label: "Nome do espaço" }),
+    },
+    {
+      id: "delete",
+      label: "Excluir espaço",
+      icon: <Trash2Icon />,
+      separatorBefore: true,
+      variant: "destructive",
+      disabled: group.spaces.length <= 1,
+      onSelect: () => setConfirmDelete({ kind: "space", id: space.id, name: space.name }),
+    },
+  ];
+
+  const submitRename = (value: string) => {
+    if (rename === null) return;
+    if (rename.kind === "page") updatePage(group.id, rename.id, { title: value });
+    else updateSpace(group.id, rename.id, { name: value });
+    setRename(null);
+  };
+
+  const submitDelete = () => {
+    if (confirmDelete === null) return;
+    if (confirmDelete.kind === "page") {
+      const doomed = pageSubtreeIds(group.pages, confirmDelete.id);
+      deletePage(group.id, confirmDelete.id);
+      if (activePageId !== null && doomed.has(activePageId)) onClearPage();
+    } else {
+      const space = group.spaces.find((candidate) => candidate.id === confirmDelete.id) ?? null;
+      const activePage =
+        activePageId === null
+          ? null
+          : (group.pages.find((page) => page.id === activePageId) ?? null);
+      if (
+        deleteSpace(group.id, confirmDelete.id) &&
+        space !== null &&
+        activePage?.spaceId === space.id
+      ) {
+        onClearPage();
+      }
+    }
+    setConfirmDelete(null);
   };
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between pr-1 pl-2">
+      <div
+        className="flex items-center justify-between pr-1 pl-2"
+        onContextMenu={(event) => sectionMenu.openMenu(event, null)}
+      >
         <SectionLabel>Espaço</SectionLabel>
         <Button
           aria-label="Novo espaço"
-          onClick={() => setCreatingSpace((value) => !value)}
+          onClick={() => setSpaceDialogOpen(true)}
           size="icon-xs"
           variant="ghost"
         >
@@ -169,7 +311,7 @@ export function GroupPagesSidebar({
               <SidebarMenuItem key={page.id}>
                 <PageRow
                   active={page.id === activePageId}
-                  depth={0}
+                  onContextMenu={pageMenu.openMenu}
                   onOpenPage={onOpenPage}
                   page={page}
                 />
@@ -179,29 +321,6 @@ export function GroupPagesSidebar({
         </SidebarMenu>
       ) : null}
 
-      {searching ? null : creatingSpace ? (
-        <div className="px-2 pb-2">
-          <Input
-            aria-label="Nome do novo espaço"
-            autoFocus
-            onChange={(event) => setSpaceDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                submitSpace();
-              }
-              if (event.key === "Escape") {
-                setSpaceDraft("");
-                setCreatingSpace(false);
-              }
-            }}
-            placeholder="Pesquisa, Produto…"
-            size="sm"
-            value={spaceDraft}
-          />
-        </div>
-      ) : null}
-
       {searching
         ? null
         : group.spaces.map((space) => {
@@ -209,7 +328,10 @@ export function GroupPagesSidebar({
             const spacePages = group.pages.filter((page) => page.spaceId === space.id).length;
             return (
               <div className="flex flex-col gap-0.5 pb-1" key={space.id}>
-                <div className="flex items-center gap-1 pr-1 pl-2">
+                <div
+                  className="flex items-center gap-1 pr-1 pl-2"
+                  onContextMenu={(event) => spaceMenu.openMenu(event, space)}
+                >
                   <span aria-hidden className="text-xs leading-none">
                     {space.icon}
                   </span>
@@ -219,7 +341,7 @@ export function GroupPagesSidebar({
                   <span className="text-2xs text-sidebar-muted-foreground">{spacePages}</span>
                   <Button
                     aria-label={`Nova página em ${space.name}`}
-                    onClick={() => onNewPage(space.id)}
+                    onClick={() => setPageDraft({ spaceId: space.id, parentId: null })}
                     size="icon-xs"
                     variant="ghost"
                   >
@@ -239,6 +361,7 @@ export function GroupPagesSidebar({
                         key={node.page.id}
                         node={node}
                         onOpenPage={onOpenPage}
+                        onPageContextMenu={pageMenu.openMenu}
                       />
                     ))}
                   </SidebarMenu>
@@ -255,7 +378,7 @@ export function GroupPagesSidebar({
               <SidebarMenuItem key={page.id}>
                 <PageRow
                   active={page.id === activePageId}
-                  depth={0}
+                  onContextMenu={pageMenu.openMenu}
                   onOpenPage={onOpenPage}
                   page={page}
                 />
@@ -278,7 +401,7 @@ export function GroupPagesSidebar({
               <SidebarMenuItem key={page.id}>
                 <PageRow
                   active={page.id === activePageId}
-                  depth={0}
+                  onContextMenu={pageMenu.openMenu}
                   onOpenPage={onOpenPage}
                   page={page}
                 />
@@ -287,6 +410,95 @@ export function GroupPagesSidebar({
           </SidebarMenu>
         </>
       ) : null}
+
+      <GroupContextMenu
+        items={pageMenu.state === null ? [] : pageItems(pageMenu.state.target)}
+        onClose={pageMenu.closeMenu}
+        point={pageMenu.state?.point ?? null}
+      />
+      <GroupContextMenu
+        items={spaceMenu.state === null ? [] : spaceItems(spaceMenu.state.target)}
+        onClose={spaceMenu.closeMenu}
+        point={spaceMenu.state?.point ?? null}
+      />
+      <GroupContextMenu
+        items={[
+          {
+            id: "new-space",
+            label: "Novo espaço",
+            icon: <FolderPlusIcon />,
+            onSelect: () => setSpaceDialogOpen(true),
+          },
+          {
+            id: "new-page",
+            label: "Nova página",
+            icon: <FilePlus2Icon />,
+            disabled: group.spaces.length === 0,
+            onSelect: () => setPageDraft({ spaceId: group.spaces[0]?.id ?? "", parentId: null }),
+          },
+        ]}
+        onClose={sectionMenu.closeMenu}
+        point={sectionMenu.state?.point ?? null}
+      />
+
+      <CreateSpaceDialog
+        group={group}
+        onCreated={() => {
+          setSpaceDialogOpen(false);
+        }}
+        onOpenChange={setSpaceDialogOpen}
+        open={spaceDialogOpen}
+      />
+      <CreatePageDialog
+        defaultParentId={pageDraft?.parentId ?? null}
+        defaultSpaceId={pageDraft?.spaceId}
+        group={group}
+        onCreated={(pageId) => {
+          setPageDraft(null);
+          onOpenPage(pageId);
+        }}
+        onOpenChange={(open) => {
+          if (!open) setPageDraft(null);
+        }}
+        open={pageDraft !== null}
+      />
+      <GroupTextDialog
+        confirmLabel="Salvar"
+        description={
+          rename?.kind === "space"
+            ? "O nome aparece no sidebar e no cabeçalho das páginas."
+            : "O título aparece no sidebar, nos links e no cabeçalho da página."
+        }
+        initialValue={rename?.value ?? ""}
+        label={rename?.label ?? "Nome"}
+        onOpenChange={(open) => {
+          if (!open) setRename(null);
+        }}
+        onSubmit={submitRename}
+        open={rename !== null}
+        placeholder={rename?.kind === "space" ? "Produto" : "Sem título"}
+        title={rename?.kind === "space" ? "Renomear espaço" : "Renomear página"}
+      />
+      <GroupConfirmDialog
+        confirmLabel={confirmDelete?.kind === "space" ? "Excluir espaço" : "Excluir página"}
+        description={
+          confirmDelete?.kind === "space"
+            ? "Todas as páginas deste espaço serão removidas. Esta ação não pode ser desfeita."
+            : "A página e as subpáginas dela serão removidas. Esta ação não pode ser desfeita."
+        }
+        onConfirm={submitDelete}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDelete(null);
+        }}
+        open={confirmDelete !== null}
+        title={
+          confirmDelete === null
+            ? "Excluir?"
+            : confirmDelete.kind === "space"
+              ? `Excluir espaço ${confirmDelete.name}?`
+              : `Excluir página ${confirmDelete.name}?`
+        }
+      />
     </div>
   );
 }

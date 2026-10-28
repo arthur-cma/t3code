@@ -1,9 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { PlusIcon, Trash2Icon, UserPlusIcon } from "lucide-react";
+import { BotIcon, HashIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
-import { uniqueHandle } from "../../groups/groupLogic";
 import { useGroupsStore } from "../../groups/groupStore";
 import { parseProjectKey, projectKey } from "../../groups/projectKey";
 import {
@@ -25,6 +24,8 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { WizardPopup } from "../ui/wizard";
+import { GroupConfirmDialog } from "./GroupActionDialogs";
+import { CreateAgentDialog, CreateChannelDialog } from "./GroupCreateDialogs";
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <span className="text-sm font-medium text-foreground">{children}</span>;
@@ -52,10 +53,8 @@ export function GroupSettingsDialog({
   const navigate = useNavigate();
   const updateGroup = useGroupsStore((store) => store.updateGroup);
   const deleteGroup = useGroupsStore((store) => store.deleteGroup);
-  const addMember = useGroupsStore((store) => store.addMember);
   const updateMember = useGroupsStore((store) => store.updateMember);
   const removeMember = useGroupsStore((store) => store.removeMember);
-  const addChannel = useGroupsStore((store) => store.addChannel);
   const deleteChannel = useGroupsStore((store) => store.deleteChannel);
 
   const environmentId = group.projectRef?.environmentId as EnvironmentId | undefined;
@@ -66,51 +65,14 @@ export function GroupSettingsDialog({
           (entry) => entry.isAvailable,
         );
 
-  const [memberName, setMemberName] = useState("");
-  const [memberHandle, setMemberHandle] = useState("");
-  const [memberRole, setMemberRole] = useState("");
-  const [memberInstanceId, setMemberInstanceId] = useState("");
-  const [memberModel, setMemberModel] = useState("");
-  const [memberAutoRespond, setMemberAutoRespond] = useState(false);
-  const [channelName, setChannelName] = useState("");
-  const [channelError, setChannelError] = useState(false);
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const selectedEntry =
-    providerEntries.find((entry) => entry.instanceId === memberInstanceId) ?? providerEntries[0];
-  const selectedModel =
-    selectedEntry?.models.find((model) => model.slug === memberModel) ??
-    selectedEntry?.models.find((model) => model.isDefault) ??
-    selectedEntry?.models[0];
-
-  const resetMemberForm = () => {
-    setMemberName("");
-    setMemberHandle("");
-    setMemberRole("");
-    setMemberAutoRespond(false);
-  };
-
-  const submitMember = () => {
-    if (selectedEntry === undefined || selectedModel === undefined) return;
-    const name = memberName.trim();
-    if (name.length === 0) return;
-    const handle = uniqueHandle(
-      memberHandle.trim().length > 0 ? memberHandle : name,
-      group.members.map((member) => member.handle),
-    );
-    addMember(group.id, {
-      name,
-      handle,
-      instanceId: selectedEntry.instanceId,
-      driverKind: selectedEntry.driverKind,
-      model: selectedModel.slug,
-      autoRespond: memberAutoRespond,
-      role: memberRole.trim(),
-      reportsTo: null,
-      personId: null,
-    });
-    resetMemberForm();
-  };
+  const [pendingDelete, setPendingDelete] = useState<{
+    kind: "agent" | "channel";
+    id: string;
+    name: string;
+  } | null>(null);
 
   return (
     <>
@@ -278,9 +240,13 @@ export function GroupSettingsDialog({
                             />
                             <Button
                               aria-label={`Remover ${member.name}`}
-                              onClick={() => {
-                                removeMember(group.id, member.id);
-                              }}
+                              onClick={() =>
+                                setPendingDelete({
+                                  kind: "agent",
+                                  id: member.id,
+                                  name: member.name,
+                                })
+                              }
                               size="icon-xs"
                               variant="ghost-destructive"
                             >
@@ -364,110 +330,12 @@ export function GroupSettingsDialog({
                 </ul>
               )}
 
-              {environmentId === undefined ? (
-                <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  Escolha um workspace para carregar os provedores disponíveis.
-                </p>
-              ) : providerEntries.length === 0 ? (
-                <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  Nenhum provedor disponível neste workspace. Configure um em Configurações →
-                  Providers.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2 rounded-lg border border-border/60 p-3">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="flex flex-col gap-1">
-                      <FieldLabel>Nome</FieldLabel>
-                      <Input
-                        onChange={(event) => setMemberName(event.target.value)}
-                        placeholder="Ana"
-                        size="sm"
-                        value={memberName}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <FieldLabel>Handle</FieldLabel>
-                      <Input
-                        onChange={(event) => setMemberHandle(event.target.value)}
-                        placeholder="ana (opcional)"
-                        size="sm"
-                        value={memberHandle}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <FieldLabel>Cargo</FieldLabel>
-                      <Input
-                        onChange={(event) => setMemberRole(event.target.value)}
-                        placeholder="Design (opcional)"
-                        size="sm"
-                        value={memberRole}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <FieldLabel>Provedor</FieldLabel>
-                      <Select
-                        onValueChange={(value) => {
-                          if (typeof value === "string") {
-                            setMemberInstanceId(value);
-                            setMemberModel("");
-                          }
-                        }}
-                        value={selectedEntry?.instanceId ?? ""}
-                      >
-                        <SelectTrigger aria-label="Provedor" className="w-full" size="sm">
-                          <SelectValue>{selectedEntry?.displayName ?? "Provedor"}</SelectValue>
-                        </SelectTrigger>
-                        <SelectPopup align="start" alignItemWithTrigger={false}>
-                          {providerEntries.map((entry) => (
-                            <SelectItem key={entry.instanceId} value={entry.instanceId}>
-                              {entry.displayName}
-                            </SelectItem>
-                          ))}
-                        </SelectPopup>
-                      </Select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <FieldLabel>Modelo</FieldLabel>
-                      <Select
-                        onValueChange={(value) => {
-                          if (typeof value === "string") setMemberModel(value);
-                        }}
-                        value={selectedModel?.slug ?? ""}
-                      >
-                        <SelectTrigger aria-label="Modelo" className="w-full" size="sm">
-                          <SelectValue>{selectedModel?.name ?? "Modelo"}</SelectValue>
-                        </SelectTrigger>
-                        <SelectPopup align="start" alignItemWithTrigger={false}>
-                          {(selectedEntry?.models ?? []).map((model) => (
-                            <SelectItem key={model.slug} value={model.slug}>
-                              {model.name}
-                            </SelectItem>
-                          ))}
-                        </SelectPopup>
-                      </Select>
-                    </label>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Switch
-                        checked={memberAutoRespond}
-                        onCheckedChange={setMemberAutoRespond}
-                        size="sm"
-                      />
-                      Responder automaticamente
-                    </label>
-                    <Button
-                      disabled={memberName.trim().length === 0 || selectedModel === undefined}
-                      onClick={submitMember}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <UserPlusIcon />
-                      Adicionar agente
-                    </Button>
-                  </div>
-                </div>
-              )}
+              <div>
+                <Button onClick={() => setAgentDialogOpen(true)} size="sm" variant="outline">
+                  <BotIcon />
+                  Adicionar agente
+                </Button>
+              </div>
             </section>
 
             <section className="flex flex-col gap-3">
@@ -481,7 +349,13 @@ export function GroupSettingsDialog({
                     {group.channels.length > 1 ? (
                       <Button
                         aria-label={`Excluir canal ${channel.name}`}
-                        onClick={() => deleteChannel(group.id, channel.id)}
+                        onClick={() =>
+                          setPendingDelete({
+                            kind: "channel",
+                            id: channel.id,
+                            name: channel.name,
+                          })
+                        }
                         size="icon-xs"
                         variant="ghost-destructive"
                       >
@@ -495,38 +369,12 @@ export function GroupSettingsDialog({
                   </li>
                 ))}
               </ul>
-              <div className="flex items-center gap-2">
-                <Input
-                  aria-label="Nome do novo canal"
-                  onChange={(event) => {
-                    setChannelName(event.target.value);
-                    setChannelError(false);
-                  }}
-                  placeholder="novo-canal"
-                  size="sm"
-                  value={channelName}
-                />
-                <Button
-                  onClick={() => {
-                    const created = addChannel(group.id, channelName);
-                    if (created === null) {
-                      setChannelError(true);
-                      return;
-                    }
-                    setChannelName("");
-                  }}
-                  size="sm"
-                  variant="outline"
-                >
-                  <PlusIcon />
-                  Adicionar
+              <div>
+                <Button onClick={() => setChannelDialogOpen(true)} size="sm" variant="outline">
+                  <HashIcon />
+                  Criar canal
                 </Button>
               </div>
-              {channelError ? (
-                <p className="text-xs text-destructive-foreground">
-                  Use um nome novo e não vazio para o canal.
-                </p>
-              ) : null}
             </section>
 
             <section className="flex flex-col gap-2 rounded-lg border border-destructive/24 p-3">
@@ -581,6 +429,48 @@ export function GroupSettingsDialog({
           </DialogFooter>
         </WizardPopup>
       </Dialog>
+
+      <CreateAgentDialog
+        group={group}
+        onCreated={() => {
+          setAgentDialogOpen(false);
+        }}
+        onOpenChange={setAgentDialogOpen}
+        open={agentDialogOpen}
+      />
+      <CreateChannelDialog
+        group={group}
+        onCreated={() => {
+          setChannelDialogOpen(false);
+        }}
+        onOpenChange={setChannelDialogOpen}
+        open={channelDialogOpen}
+      />
+      <GroupConfirmDialog
+        confirmLabel={pendingDelete?.kind === "channel" ? "Excluir canal" : "Remover agente"}
+        description={
+          pendingDelete?.kind === "channel"
+            ? "O histórico local deste canal será removido. Esta ação não pode ser desfeita."
+            : "O agente sai do grupo e das conversas diretas. As threads dele continuam no T3 Code."
+        }
+        onConfirm={() => {
+          if (pendingDelete === null) return;
+          if (pendingDelete.kind === "channel") deleteChannel(group.id, pendingDelete.id);
+          else removeMember(group.id, pendingDelete.id);
+          setPendingDelete(null);
+        }}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        open={pendingDelete !== null}
+        title={
+          pendingDelete === null
+            ? "Confirmar?"
+            : pendingDelete.kind === "channel"
+              ? `Excluir canal #${pendingDelete.name}?`
+              : `Remover ${pendingDelete.name}?`
+        }
+      />
     </>
   );
 }

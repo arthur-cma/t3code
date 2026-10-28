@@ -1,11 +1,14 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
   CalendarClockIcon,
+  CopyIcon,
   HashIcon,
   MessageSquareIcon,
   NetworkIcon,
+  PencilIcon,
   SendIcon,
   SettingsIcon,
+  Trash2Icon,
   UserPlusIcon,
   UsersIcon,
 } from "lucide-react";
@@ -18,7 +21,13 @@ import {
   mentionCandidates,
   type MentionQuery,
 } from "../../groups/groupLogic";
-import { channelMessages, threadLinksForChannel, useGroupsStore } from "../../groups/groupStore";
+import {
+  channelMessages,
+  firstTextChannel,
+  textChannels,
+  threadLinksForChannel,
+  useGroupsStore,
+} from "../../groups/groupStore";
 import { GroupThreadSync, type GroupReplyLink } from "../../groups/GroupThreadSync";
 import { useGroupSend } from "../../groups/useGroupSend";
 import type { Group, GroupChannel } from "../../groups/types";
@@ -30,9 +39,15 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "..
 import { SidebarInset } from "../ui/sidebar";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
+import { GroupConfirmDialog, GroupTextDialog } from "./GroupActionDialogs";
 import { GroupAgentConfigDialog } from "./GroupAgentConfigDialog";
 import { GroupAvatar } from "./GroupAvatar";
 import { GroupCollaborationDialog } from "./GroupCollaborationDialog";
+import {
+  GroupContextMenu,
+  useGroupContextMenu,
+  type GroupContextMenuItem,
+} from "./GroupContextMenu";
 import { GroupMeetingRoom } from "./GroupMeetingRoom";
 import { GroupMembersPanel } from "./GroupMembersPanel";
 import { GroupMessageRow } from "./GroupMessageRow";
@@ -44,6 +59,9 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
   const projects = useProjects();
   const navigate = useNavigate();
   const openDm = useGroupsStore((store) => store.openDm);
+  const updateChannel = useGroupsStore((store) => store.updateChannel);
+  const addChannel = useGroupsStore((store) => store.addChannel);
+  const deleteChannel = useGroupsStore((store) => store.deleteChannel);
   const messages = useGroupsStore((store) => channelMessages(store.messages, channel.id));
   const links = useGroupsStore((store) => store.links);
   const channelLinks = threadLinksForChannel(links, channel.id);
@@ -60,6 +78,9 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collabOpen, setCollabOpen] = useState(false);
   const [configMemberId, setConfigMemberId] = useState<string | null>(null);
+  const [rename, setRename] = useState<{ field: "name" | "topic"; value: string } | null>(null);
+  const [confirmChannelDelete, setConfirmChannelDelete] = useState(false);
+  const channelMenu = useGroupContextMenu<GroupChannel>();
   const [membersOpen, setMembersOpen] = useState(true);
   const [orgOpen, setOrgOpen] = useState(false);
   const [meetingOpen, setMeetingOpen] = useState(false);
@@ -121,6 +142,78 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
     });
   };
 
+  const goToChannel = (targetChannelId: string) => {
+    void navigate({
+      to: "/groups/$groupId",
+      params: { groupId: group.id },
+      search: { channel: targetChannelId },
+    });
+  };
+
+  const duplicateChannel = () => {
+    const existing = new Set(textChannels(group).map((candidate) => candidate.name.toLowerCase()));
+    let candidate = `${channel.name}-copia`;
+    let index = 2;
+    while (existing.has(candidate.toLowerCase())) {
+      candidate = `${channel.name}-copia-${index}`;
+      index += 1;
+    }
+    const created = addChannel(group.id, candidate, channel.topic);
+    if (created !== null) goToChannel(created);
+  };
+
+  const submitRename = (value: string) => {
+    if (rename === null) return;
+    updateChannel(
+      group.id,
+      channel.id,
+      rename.field === "name" ? { name: value.replace(/^#/, "") } : { topic: value },
+    );
+    setRename(null);
+  };
+
+  const submitChannelDelete = () => {
+    const deleted = deleteChannel(group.id, channel.id);
+    setConfirmChannelDelete(false);
+    if (!deleted) return;
+    const first = firstTextChannel(group);
+    void navigate({
+      to: "/groups/$groupId",
+      params: { groupId: group.id },
+      search: first === null ? {} : { channel: first.id },
+    });
+  };
+
+  const channelItems = (): GroupContextMenuItem[] => [
+    {
+      id: "rename",
+      label: "Renomear canal",
+      icon: <PencilIcon />,
+      onSelect: () => setRename({ field: "name", value: channel.name }),
+    },
+    {
+      id: "topic",
+      label: "Editar tópico",
+      icon: <PencilIcon />,
+      onSelect: () => setRename({ field: "topic", value: channel.topic }),
+    },
+    {
+      id: "duplicate",
+      label: "Duplicar canal",
+      icon: <CopyIcon />,
+      onSelect: duplicateChannel,
+    },
+    {
+      id: "delete",
+      label: "Excluir canal",
+      icon: <Trash2Icon />,
+      separatorBefore: true,
+      variant: "destructive",
+      disabled: textChannels(group).length <= 1,
+      onSelect: () => setConfirmChannelDelete(true),
+    },
+  ];
+
   const submit = () => {
     const value = draft.trim();
     if (value.length === 0 || sending) return;
@@ -135,7 +228,10 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
     <SidebarInset className="h-dvh min-h-0 overflow-hidden" role="main">
       <WorkspacePageHeader className="gap-2 border-b border-border/60" electron={isElectron}>
         {dmMember === null ? <GroupAvatar group={group} size="sm" /> : null}
-        <div className="min-w-0 flex-1">
+        <div
+          className="min-w-0 flex-1"
+          onContextMenu={isDm ? undefined : (event) => channelMenu.openMenu(event, channel)}
+        >
           <div className="flex min-w-0 items-baseline gap-1.5">
             <h1 className="truncate text-sm font-semibold text-foreground">{group.name}</h1>
             <span className="flex min-w-0 items-center gap-0.5 text-xs text-muted-foreground">
@@ -414,6 +510,40 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
         onOpenChange={setMeetingOpen}
         onSendSummary={send}
         open={meetingOpen}
+      />
+
+      {isDm ? null : (
+        <GroupContextMenu
+          items={channelMenu.state === null ? [] : channelItems()}
+          onClose={channelMenu.closeMenu}
+          point={channelMenu.state?.point ?? null}
+        />
+      )}
+      <GroupTextDialog
+        confirmLabel="Salvar"
+        description={
+          rename?.field === "topic"
+            ? `O tópico aparece abaixo do nome de #${channel.name}.`
+            : "O novo nome aparece no sidebar e no cabeçalho do canal."
+        }
+        initialValue={rename?.value ?? ""}
+        label={rename?.field === "topic" ? "Tópico" : "Nome do canal"}
+        multiline={rename?.field === "topic"}
+        onOpenChange={(open) => {
+          if (!open) setRename(null);
+        }}
+        onSubmit={submitRename}
+        open={rename !== null}
+        placeholder={rename?.field === "topic" ? "Assuntos deste canal" : "geral"}
+        title={rename?.field === "topic" ? "Editar tópico" : "Renomear canal"}
+      />
+      <GroupConfirmDialog
+        confirmLabel="Excluir canal"
+        description="O histórico local deste canal será removido. Esta ação não pode ser desfeita."
+        onConfirm={submitChannelDelete}
+        onOpenChange={setConfirmChannelDelete}
+        open={confirmChannelDelete}
+        title={`Excluir canal #${channel.name}?`}
       />
     </SidebarInset>
   );

@@ -78,7 +78,7 @@ export function CreateGroupDialog({
     >
       <WizardPopup>
         <DialogHeader>
-          <DialogTitle>Novo grupo</DialogTitle>
+          <DialogTitle>Criar grupo</DialogTitle>
           <DialogDescription>
             Crie um espaço com canais e agentes dos provedores que você já usa no T3 Code.
           </DialogDescription>

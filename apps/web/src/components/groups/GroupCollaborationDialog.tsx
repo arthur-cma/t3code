@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { groupInitials, uniquePersonHandle } from "../../groups/groupLogic";
+import { groupInitials } from "../../groups/groupLogic";
 import { useGroupsStore } from "../../groups/groupStore";
 import { buildSharePayload, decodeGroupShare, encodeGroupShare } from "../../groups/groupSync";
 import { GROUP_ACCENT_CLASSES, type Group } from "../../groups/types";
@@ -19,9 +19,9 @@ import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
-import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { WizardPopup } from "../ui/wizard";
+import { CreatePersonDialog } from "./GroupCreateDialogs";
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -44,7 +44,6 @@ export function GroupCollaborationDialog({
 }) {
   const providersByEnvironment = useEnvironmentProviders();
   const messages = useGroupsStore((store) => store.messages);
-  const addPerson = useGroupsStore((store) => store.addPerson);
   const removePerson = useGroupsStore((store) => store.removePerson);
   const addBinding = useGroupsStore((store) => store.addBinding);
   const removeBinding = useGroupsStore((store) => store.removeBinding);
@@ -58,9 +57,7 @@ export function GroupCollaborationDialog({
           (entry) => entry.isAvailable,
         );
 
-  const [personName, setPersonName] = useState("");
-  const [personHandle, setPersonHandle] = useState("");
-  const [personRole, setPersonRole] = useState("");
+  const [personDialogOpen, setPersonDialogOpen] = useState(false);
 
   const [bindingMemberId, setBindingMemberId] = useState("");
   const [bindingPersonId, setBindingPersonId] = useState("");
@@ -82,22 +79,6 @@ export function GroupCollaborationDialog({
     selectedEntry?.models.find((model) => model.slug === bindingModel) ??
     selectedEntry?.models.find((model) => model.isDefault) ??
     selectedEntry?.models[0];
-
-  const submitPerson = () => {
-    const name = personName.trim();
-    if (name.length === 0) return;
-    addPerson(group.id, {
-      name,
-      handle: uniquePersonHandle(personHandle.trim().length > 0 ? personHandle : name, [
-        ...group.people,
-        ...group.members,
-      ]),
-      role: personRole.trim(),
-    });
-    setPersonName("");
-    setPersonHandle("");
-    setPersonRole("");
-  };
 
   const submitBinding = () => {
     if (selectedMember === undefined || selectedPerson === undefined) return;
@@ -192,36 +173,10 @@ export function GroupCollaborationDialog({
                 </li>
               ))}
             </ul>
-            <div className="grid gap-2 sm:grid-cols-4">
-              <Input
-                aria-label="Nome da pessoa"
-                onChange={(event) => setPersonName(event.target.value)}
-                placeholder="Nome"
-                size="sm"
-                value={personName}
-              />
-              <Input
-                aria-label="Handle da pessoa"
-                onChange={(event) => setPersonHandle(event.target.value)}
-                placeholder="handle (opcional)"
-                size="sm"
-                value={personHandle}
-              />
-              <Input
-                aria-label="Cargo da pessoa"
-                onChange={(event) => setPersonRole(event.target.value)}
-                placeholder="Cargo (opcional)"
-                size="sm"
-                value={personRole}
-              />
-              <Button
-                disabled={personName.trim().length === 0}
-                onClick={submitPerson}
-                size="sm"
-                variant="outline"
-              >
+            <div>
+              <Button onClick={() => setPersonDialogOpen(true)} size="sm" variant="outline">
                 <UserPlusIcon />
-                Adicionar
+                Convidar pessoa
               </Button>
             </div>
           </section>
@@ -429,6 +384,14 @@ export function GroupCollaborationDialog({
           </section>
         </div>
       </WizardPopup>
+      <CreatePersonDialog
+        group={group}
+        onCreated={() => {
+          setPersonDialogOpen(false);
+        }}
+        onOpenChange={setPersonDialogOpen}
+        open={personDialogOpen}
+      />
     </Dialog>
   );
 }
