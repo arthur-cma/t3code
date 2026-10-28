@@ -1,57 +1,160 @@
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/models";
 import {
-  EyeIcon,
+  CopyIcon,
+  DownloadIcon,
+  EllipsisIcon,
   FilePlus2Icon,
+  FileTextIcon,
+  ImageIcon,
+  LayoutGridIcon,
   LinkIcon,
   MessageSquareIcon,
   NetworkIcon,
-  PencilIcon,
   StarIcon,
+  TagIcon,
   Trash2Icon,
+  XIcon,
 } from "lucide-react";
-import { useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
+import { cn } from "../../lib/utils";
 import {
   pageBacklinks,
   pageBreadcrumbs,
   pageHeadings,
   pageOutgoingLinks,
   pageWordCount,
-  renderWikiLinksAsCode,
   resolveWikiLink,
-  wikiLinkTitleFromText,
+  type PageHeading,
 } from "../../groups/pageLogic";
-import { useGroupsStore } from "../../groups/groupStore";
-import type { Group, GroupPage } from "../../groups/types";
-import { cn } from "../../lib/utils";
-import ChatMarkdown from "../ChatMarkdown";
+import { copyPageLink, exportPageMarkdown } from "../../groups/pageActions";
+import { normalizePageTags, useGroupsStore } from "../../groups/groupStore";
+import type { Group, GroupPage, GroupPageCoverId } from "../../groups/types";
+import { GROUP_PAGE_COVER_CLASSES } from "../../groups/types";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SidebarInset } from "../ui/sidebar";
 import { GroupConfirmDialog } from "./GroupActionDialogs";
 import { CreatePageDialog } from "./GroupCreateDialogs";
+import { GroupPageCanvas } from "./GroupPageCanvas";
+import { GroupPageCoverDialog } from "./GroupPageCoverDialog";
 import { GroupPageDiscussDialog } from "./GroupPageDiscussDialog";
+import { GroupPageEditor } from "./GroupPageEditor";
 import { GroupPageGraph } from "./GroupPageGraph";
+import { GroupPageTrashDialog } from "./GroupPageTrashDialog";
 
-function ToolbarButton({
-  children,
-  onClick,
-  title,
+function PageTitleInput({ page, onSave }: { page: GroupPage; onSave: (title: string) => void }) {
+  return (
+    <input
+      aria-label="Título da página"
+      className="w-full rounded-md bg-transparent text-2xl font-semibold text-foreground outline-none placeholder:text-muted-foreground/60 hover:bg-muted/40 focus-visible:bg-muted/40"
+      onChange={(event) => onSave(event.target.value)}
+      placeholder="Sem título"
+      value={page.title}
+    />
+  );
+}
+
+function TagRow({ page, onSave }: { page: GroupPage; onSave: (tags: string[]) => void }) {
+  const [draft, setDraft] = useState("");
+  const submit = () => {
+    const next = normalizePageTags([...page.tags, draft]);
+    setDraft("");
+    if (next.length === page.tags.length) return;
+    onSave(next);
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {page.tags.map((tag) => (
+        <span
+          className="flex items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5 text-2xs text-muted-foreground"
+          key={tag}
+        >
+          {tag}
+          <button
+            aria-label={`Remover tag ${tag}`}
+            className="rounded-sm outline-hidden hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            onClick={() => onSave(page.tags.filter((entry) => entry !== tag))}
+            type="button"
+          >
+            <XIcon className="size-3" />
+          </button>
+        </span>
+      ))}
+      <form
+        className="flex items-center"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <span className="w-24 shrink-0">
+          <Input
+            aria-label="Adicionar tag"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="+ tag"
+            size="sm"
+            value={draft}
+          />
+        </span>
+      </form>
+    </div>
+  );
+}
+
+function HeadingSection({
+  headings,
+  onJump,
 }: {
-  children: React.ReactNode;
-  onClick: () => void;
-  title: string;
+  headings: PageHeading[];
+  onJump: (heading: PageHeading) => void;
 }) {
   return (
-    <button
-      aria-label={title}
-      className="flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-xs text-muted-foreground outline-hidden transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      onClick={onClick}
-      type="button"
-    >
-      {children}
-    </button>
+    <aside className="hidden w-56 shrink-0 flex-col border-l border-border/60 bg-sidebar/40 xl:flex">
+      <div className="border-b border-border/60 px-3 py-2">
+        <h2 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+          Nesta página
+        </h2>
+      </div>
+      <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        {headings.length === 0 ? (
+          <p className="px-1 text-xs leading-relaxed text-muted-foreground">
+            Adicione títulos para montar o sumário.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-0.5">
+            {headings.map((heading) => (
+              <li key={heading.id}>
+                <button
+                  className="w-full truncate rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground outline-hidden hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  onClick={() => onJump(heading)}
+                  style={{ paddingLeft: `${6 + (heading.level - 1) * 10}px` }}
+                  type="button"
+                >
+                  {heading.text}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <p className="border-t border-border/60 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
+        Digite / para blocos · [[ para linkar
+      </p>
+    </aside>
   );
+}
+
+function InfoChip({ children }: { children: ReactNode }) {
+  return <span className="truncate">{children}</span>;
 }
 
 export function GroupPageView({
@@ -69,17 +172,16 @@ export function GroupPageView({
 }) {
   const updatePage = useGroupsStore((store) => store.updatePage);
   const deletePage = useGroupsStore((store) => store.deletePage);
+  const duplicatePage = useGroupsStore((store) => store.duplicatePage);
   const togglePageFavorite = useGroupsStore((store) => store.togglePageFavorite);
   const addPage = useGroupsStore((store) => store.addPage);
-  const [mode, setMode] = useState<"edit" | "preview">(() =>
-    page.content.trim().length > 0 ? "preview" : "edit",
-  );
   const [discussOpen, setDiscussOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [subpageOpen, setSubpageOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
+  const [coverOpen, setCoverOpen] = useState(false);
+  const editorWrapRef = useRef<HTMLDivElement>(null);
 
   const space = group.spaces.find((candidate) => candidate.id === page.spaceId) ?? null;
   const crumbs = pageBreadcrumbs(group.pages, page.id).slice(0, -1);
@@ -87,8 +189,16 @@ export function GroupPageView({
   const backlinks = pageBacklinks(group.pages, page);
   const headings = pageHeadings(page.content);
   const words = pageWordCount(page.content);
+  const isCanvas = page.mode === "canvas";
 
-  const save = (patch: Partial<Pick<GroupPage, "title" | "content" | "icon" | "parentId">>) => {
+  const save = (
+    patch: Partial<
+      Pick<
+        GroupPage,
+        "title" | "content" | "icon" | "parentId" | "cover" | "tags" | "mode" | "canvas"
+      >
+    >,
+  ) => {
     updatePage(group.id, page.id, patch);
   };
 
@@ -102,63 +212,70 @@ export function GroupPageView({
     if (created !== null) onOpenPage(created);
   };
 
-  const handlePreviewClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement | null;
-    const code = target?.closest("code");
-    if (code === null || code === undefined) return;
-    const title = wikiLinkTitleFromText(code.textContent ?? "");
-    if (title === null) return;
-    event.preventDefault();
-    openLink(title);
-  };
-
-  const wrapSelection = (prefix: string, suffix = prefix) => {
-    const element = editorRef.current;
-    if (element === null) return;
-    const start = element.selectionStart;
-    const end = element.selectionEnd;
-    const current = page.content;
-    const selected = current.slice(start, end);
-    const next = `${current.slice(0, start)}${prefix}${selected}${suffix}${current.slice(end)}`;
-    save({ content: next });
-    requestAnimationFrame(() => {
-      element.focus();
-      const caret = start + prefix.length + selected.length + suffix.length;
-      element.setSelectionRange(caret, caret);
-    });
-  };
-
-  const prefixLines = (prefix: string) => {
-    const element = editorRef.current;
-    if (element === null) return;
-    const start = element.selectionStart;
-    const end = element.selectionEnd;
-    const current = page.content;
-    const lineStart = current.lastIndexOf("\n", start - 1) + 1;
-    const block = current.slice(lineStart, end);
-    const prefixed = block
-      .split("\n")
-      .map((line) => `${prefix}${line}`)
-      .join("\n");
-    const next = `${current.slice(0, lineStart)}${prefixed}${current.slice(end)}`;
-    save({ content: next });
-    requestAnimationFrame(() => {
-      element.focus();
-      const caret = lineStart + prefixed.length;
-      element.setSelectionRange(caret, caret);
-    });
-  };
-
-  const addSubpage = () => {
-    setSubpageOpen(true);
-  };
-
-  const scrollToHeading = (id: string) => {
-    const container = previewRef.current;
+  const jumpToHeading = (heading: PageHeading) => {
+    const container = editorWrapRef.current;
     if (container === null) return;
-    const target = container.querySelector<HTMLElement>(`[id="${CSS.escape(id)}"]`);
+    const elements = Array.from(container.querySelectorAll<HTMLElement>("h1, h2, h3, h4"));
+    const target = elements.find(
+      (element) => (element.textContent ?? "").trim() === heading.text.trim(),
+    );
     target?.scrollIntoView({ block: "start", behavior: "smooth" });
   };
+
+  const coverStrip =
+    page.cover === "" ? null : (
+      <div
+        className={cn(
+          "relative h-36 w-full border-b border-border/60",
+          GROUP_PAGE_COVER_CLASSES[page.cover],
+        )}
+      >
+        <div className="absolute right-3 bottom-3 flex items-center gap-1">
+          <Button onClick={() => setCoverOpen(true)} size="xs" variant="outline">
+            Trocar capa
+          </Button>
+          <Button
+            aria-label="Remover capa"
+            onClick={() => save({ cover: "" })}
+            size="icon-xs"
+            variant="outline"
+          >
+            <XIcon />
+          </Button>
+        </div>
+      </div>
+    );
+
+  const pageHeading = (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start gap-2">
+        <input
+          aria-label="Ícone da página"
+          className="mt-1 w-10 shrink-0 rounded-md bg-transparent text-center text-2xl outline-none hover:bg-muted/60 focus-visible:bg-muted/60"
+          maxLength={4}
+          onChange={(event) => save({ icon: event.target.value })}
+          value={page.icon}
+        />
+        <div className="min-w-0 flex-1">
+          <PageTitleInput onSave={(title) => save({ title })} page={page} />
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+            <InfoChip>{words} palavra(s)</InfoChip>
+            <span aria-hidden>·</span>
+            <InfoChip>{isCanvas ? "Quadro" : "Documento"}</InfoChip>
+            <span aria-hidden>·</span>
+            <InfoChip>atualizada em {new Date(page.updatedAt).toLocaleString("pt-BR")}</InfoChip>
+            {page.dailyKey === null ? null : (
+              <>
+                <span aria-hidden>·</span>
+                <InfoChip>diário</InfoChip>
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+      <TagRow onSave={(tags) => save({ tags })} page={page} />
+    </div>
+  );
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden" role="main">
@@ -185,14 +302,29 @@ export function GroupPageView({
         </div>
 
         <Button
-          aria-label={mode === "edit" ? "Visualizar página" : "Editar página"}
-          onClick={() => setMode((current) => (current === "edit" ? "preview" : "edit"))}
+          aria-label="Modo documento"
+          aria-pressed={!isCanvas}
+          onClick={() => save({ mode: "document" })}
+          size="icon-sm"
+          variant={isCanvas ? "ghost" : "secondary"}
+        >
+          <FileTextIcon />
+        </Button>
+        <Button
+          aria-label="Modo quadro"
+          aria-pressed={isCanvas}
+          onClick={() => save({ mode: "canvas" })}
+          size="icon-sm"
+          variant={isCanvas ? "secondary" : "ghost"}
+        >
+          <LayoutGridIcon />
+        </Button>
+        <Button
+          aria-label="Nova subpágina"
+          onClick={() => setSubpageOpen(true)}
           size="icon-sm"
           variant="ghost"
         >
-          {mode === "edit" ? <EyeIcon /> : <PencilIcon />}
-        </Button>
-        <Button aria-label="Nova subpágina" onClick={addSubpage} size="icon-sm" variant="ghost">
           <FilePlus2Icon />
         </Button>
         <Button
@@ -220,202 +352,162 @@ export function GroupPageView({
         >
           <MessageSquareIcon />
         </Button>
-        <Button
-          aria-label="Excluir página"
-          onClick={() => setConfirmDelete(true)}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <Trash2Icon />
-        </Button>
+        <Menu>
+          <MenuTrigger
+            render={<Button aria-label="Mais ações da página" size="icon-sm" variant="ghost" />}
+          >
+            <EllipsisIcon />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem onClick={() => setCoverOpen(true)}>
+              <ImageIcon />
+              {page.cover === "" ? "Adicionar capa" : "Trocar capa"}
+            </MenuItem>
+            <MenuItem onClick={() => exportPageMarkdown(page)}>
+              <DownloadIcon />
+              Exportar markdown
+            </MenuItem>
+            <MenuItem onClick={() => void copyPageLink(group.id, page.id)}>
+              <CopyIcon />
+              Copiar link
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                const created = duplicatePage(group.id, page.id);
+                if (created !== null) onOpenPage(created);
+              }}
+            >
+              <FilePlus2Icon />
+              Duplicar página
+            </MenuItem>
+            <MenuItem onClick={() => setTrashOpen(true)}>
+              <Trash2Icon />
+              Abrir lixeira
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem onClick={() => setConfirmDelete(true)} variant="destructive">
+              <Trash2Icon />
+              Mover para a lixeira
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
       </WorkspacePageHeader>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
-          <article className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-5 py-8 sm:px-8">
-            <div className="flex items-start gap-2">
-              <input
-                aria-label="Ícone da página"
-                className="mt-1 w-10 shrink-0 rounded-md bg-transparent text-center text-2xl outline-none hover:bg-muted/60 focus-visible:bg-muted/60"
-                maxLength={4}
-                onChange={(event) => save({ icon: event.target.value })}
-                value={page.icon}
-              />
-              <div className="min-w-0 flex-1">
-                <input
-                  aria-label="Título da página"
-                  className="w-full rounded-md bg-transparent text-2xl font-semibold text-foreground outline-none placeholder:text-muted-foreground/60 hover:bg-muted/40 focus-visible:bg-muted/40"
-                  onChange={(event) => save({ title: event.target.value })}
-                  placeholder="Sem título"
-                  value={page.title}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {words} palavra(s) · atualizada em{" "}
-                  {new Date(page.updatedAt).toLocaleString("pt-BR")}
-                </p>
-              </div>
-            </div>
+      {isCanvas ? (
+        <>
+          {coverStrip}
+          <div className="mx-auto w-full max-w-3xl shrink-0 px-5 pt-4 pb-3 sm:px-8">
+            {pageHeading}
+          </div>
+          <GroupPageCanvas
+            key={`${page.id}:canvas`}
+            onChange={(canvas) => save({ canvas })}
+            page={page}
+          />
+        </>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
+            {coverStrip}
+            <article className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-5 pt-6 pb-10 sm:px-8">
+              {pageHeading}
 
-            {mode === "edit" ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-0.5 rounded-md border border-border/60 bg-muted/20 px-1 py-0.5">
-                  <ToolbarButton onClick={() => wrapSelection("**")} title="Negrito">
-                    B
-                  </ToolbarButton>
-                  <ToolbarButton onClick={() => wrapSelection("*")} title="Itálico">
-                    I
-                  </ToolbarButton>
-                  <ToolbarButton onClick={() => wrapSelection("`")} title="Código">
-                    {"</>"}
-                  </ToolbarButton>
-                  <ToolbarButton onClick={() => prefixLines("## ")} title="Título">
-                    H2
-                  </ToolbarButton>
-                  <ToolbarButton onClick={() => prefixLines("- ")} title="Lista">
-                    •
-                  </ToolbarButton>
-                  <ToolbarButton onClick={() => prefixLines("> ")} title="Citação">
-                    ❝
-                  </ToolbarButton>
-                  <ToolbarButton onClick={() => wrapSelection("[", "](url)")} title="Link">
-                    <LinkIcon className="size-3.5" />
-                  </ToolbarButton>
-                  <ToolbarButton onClick={() => wrapSelection("[[", "]]")} title="Link para página">
-                    [[ ]]
-                  </ToolbarButton>
-                </div>
-                <textarea
-                  aria-label="Conteúdo da página"
-                  className="min-h-[55vh] w-full resize-y rounded-lg border border-input bg-background px-4 py-3 font-mono text-sm leading-relaxed text-foreground shadow-xs outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 focus-visible:ring-inset"
-                  onChange={(event) => save({ content: event.target.value })}
-                  placeholder="Escreva em markdown. Use [[Título]] para linkar outra página."
-                  ref={editorRef}
-                  spellCheck
+              <div ref={editorWrapRef}>
+                <GroupPageEditor
+                  key={page.id}
+                  onChange={(markdown) => {
+                    if (markdown === page.content) return;
+                    save({ content: markdown });
+                  }}
+                  onOpenPageLink={openLink}
+                  onSwitchToCanvas={() => save({ mode: "canvas" })}
                   value={page.content}
                 />
-                <p className="text-2xs text-muted-foreground">
-                  Markdown · [[wikilinks]] criam páginas quando o título não existe
-                </p>
               </div>
-            ) : (
-              <div
-                className="min-h-[40vh] rounded-lg"
-                onClickCapture={handlePreviewClick}
-                ref={previewRef}
-              >
-                {page.content.trim().length === 0 ? (
-                  <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border/70 px-4 py-10 text-center">
-                    <p className="text-sm text-muted-foreground">Esta página está vazia.</p>
-                    <Button onClick={() => setMode("edit")} size="sm" variant="outline">
-                      <PencilIcon />
-                      Escrever
-                    </Button>
+
+              <section className="flex flex-col gap-2 border-t border-border/60 pt-4">
+                <h2 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  <LinkIcon className="size-3" />
+                  Conexões
+                </h2>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1">
+                    <p className="text-2xs text-muted-foreground">
+                      Links desta página ({outgoing.length})
+                    </p>
+                    {outgoing.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Nenhum link. Use [[Título]] no conteúdo.
+                      </p>
+                    ) : (
+                      <ul className="flex flex-col gap-0.5">
+                        {outgoing.map((link) => (
+                          <li key={link.title}>
+                            <button
+                              className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground outline-hidden hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                              onClick={() => openLink(link.title)}
+                              type="button"
+                            >
+                              <span aria-hidden>{link.page?.icon ?? "➕"}</span>
+                              <span className="min-w-0 flex-1 truncate">{link.title}</span>
+                              {link.page === null ? (
+                                <span className="shrink-0 text-2xs text-muted-foreground">
+                                  criar
+                                </span>
+                              ) : null}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                ) : (
-                  <ChatMarkdown
-                    className="[&_code]:cursor-pointer [&_code]:rounded [&_code]:bg-primary/10 [&_code]:px-1 [&_code]:text-primary"
-                    cwd={project?.workspaceRoot}
-                    text={renderWikiLinksAsCode(page.content)}
-                  />
-                )}
-              </div>
-            )}
+                  <div className="flex flex-col gap-1">
+                    <p className="text-2xs text-muted-foreground">Backlinks ({backlinks.length})</p>
+                    {backlinks.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Nenhuma página menciona esta ainda.
+                      </p>
+                    ) : (
+                      <ul className="flex flex-col gap-0.5">
+                        {backlinks.map((source) => (
+                          <li key={source.id}>
+                            <button
+                              className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground outline-hidden hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                              onClick={() => onOpenPage(source.id)}
+                              type="button"
+                            >
+                              <span aria-hidden>{source.icon}</span>
+                              <span className="min-w-0 flex-1 truncate">{source.title}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </section>
 
-            <section className="flex flex-col gap-2 border-t border-border/60 pt-4">
-              <h2 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                <LinkIcon className="size-3" />
-                Conexões
-              </h2>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-1">
-                  <p className="text-2xs text-muted-foreground">
-                    Links desta página ({outgoing.length})
+              <section className="flex flex-col gap-1 border-t border-border/60 pt-4">
+                <h2 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  <TagIcon className="size-3" />
+                  Tags
+                </h2>
+                {page.tags.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Use tags para agrupar páginas por assunto e encontrá-las na busca.
                   </p>
-                  {outgoing.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      Nenhum link. Use [[Título]] no conteúdo.
-                    </p>
-                  ) : (
-                    <ul className="flex flex-col gap-0.5">
-                      {outgoing.map((link) => (
-                        <li key={link.title}>
-                          <button
-                            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground outline-hidden hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                            onClick={() => openLink(link.title)}
-                            type="button"
-                          >
-                            <span aria-hidden>{link.page?.icon ?? "➕"}</span>
-                            <span className="min-w-0 flex-1 truncate">{link.title}</span>
-                            {link.page === null ? (
-                              <span className="shrink-0 text-2xs text-muted-foreground">criar</span>
-                            ) : null}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <p className="text-2xs text-muted-foreground">Backlinks ({backlinks.length})</p>
-                  {backlinks.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      Nenhuma página menciona esta ainda.
-                    </p>
-                  ) : (
-                    <ul className="flex flex-col gap-0.5">
-                      {backlinks.map((source) => (
-                        <li key={source.id}>
-                          <button
-                            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground outline-hidden hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                            onClick={() => onOpenPage(source.id)}
-                            type="button"
-                          >
-                            <span aria-hidden>{source.icon}</span>
-                            <span className="min-w-0 flex-1 truncate">{source.title}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            </section>
-          </article>
-        </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {page.tags.map((tag) => `#${tag}`).join(" · ")}
+                  </p>
+                )}
+              </section>
+            </article>
+          </div>
 
-        <aside className="hidden w-56 shrink-0 flex-col border-l border-border/60 bg-sidebar/40 xl:flex">
-          <div className="border-b border-border/60 px-3 py-2">
-            <h2 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
-              Nesta página
-            </h2>
-          </div>
-          <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto px-2 py-2">
-            {headings.length === 0 ? (
-              <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-                Adicione títulos com ## para montar o sumário.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-0.5">
-                {headings.map((heading) => (
-                  <li key={heading.id}>
-                    <button
-                      className="w-full truncate rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground outline-hidden hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                      onClick={() => scrollToHeading(heading.id)}
-                      style={{ paddingLeft: `${6 + (heading.level - 1) * 10}px` }}
-                      type="button"
-                    >
-                      {heading.text}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <p className="border-t border-border/60 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
-            Atalhos: [[ para linkar · ## para títulos
-          </p>
-        </aside>
-      </div>
+          <HeadingSection headings={headings} onJump={jumpToHeading} />
+        </div>
+      )}
 
       <GroupPageDiscussDialog
         group={group}
@@ -442,16 +534,28 @@ export function GroupPageView({
         onOpenChange={setSubpageOpen}
         open={subpageOpen}
       />
+      <GroupPageCoverDialog
+        initial={page.cover}
+        onOpenChange={setCoverOpen}
+        onSubmit={(cover: GroupPageCoverId | "") => save({ cover })}
+        open={coverOpen}
+      />
+      <GroupPageTrashDialog
+        group={group}
+        onOpenChange={setTrashOpen}
+        onRestored={onOpenPage}
+        open={trashOpen}
+      />
       <GroupConfirmDialog
-        confirmLabel="Excluir página"
-        description="A página e as subpáginas dela serão removidas. Esta ação não pode ser desfeita."
+        confirmLabel="Mover para a lixeira"
+        description="A página e as subpáginas vão para a lixeira e podem ser restauradas depois."
         onConfirm={() => {
           setConfirmDelete(false);
           deletePage(group.id, page.id);
         }}
         onOpenChange={setConfirmDelete}
         open={confirmDelete}
-        title={`Excluir página ${page.title}?`}
+        title={`Mover ${page.title} para a lixeira?`}
       />
     </SidebarInset>
   );

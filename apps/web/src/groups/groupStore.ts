@@ -4,18 +4,23 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "../lib/storage";
 import { randomUUID } from "../lib/utils";
 import { uniquePersonHandle } from "./groupLogic";
+import { dailyKeyFor, dailyPageContent, dailyPageTitle } from "./pageDoc";
 import {
   DEFAULT_GROUP_SETTINGS,
   GROUP_ACCENTS,
   type Group,
   type GroupAccent,
   type GroupAgentBinding,
+  type GroupCanvasNode,
   type GroupChannel,
   type GroupChannelKind,
   type GroupMeeting,
   type GroupMember,
   type GroupMessage,
   type GroupPage,
+  type GroupPageCanvas,
+  type GroupPageCoverId,
+  type GroupPageMode,
   type GroupPerson,
   type GroupProjectRef,
   type GroupSettings,
@@ -26,7 +31,7 @@ import type { GroupSharePayload } from "./groupSync";
 import { mergeGroups, mergeMessages } from "./groupSync";
 
 const GROUPS_STORAGE_KEY = "t3code:groups:v1";
-const GROUPS_STORAGE_VERSION = 5;
+const GROUPS_STORAGE_VERSION = 6;
 
 function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
@@ -79,6 +84,10 @@ function createGroupPage(input: {
   title: string;
   icon?: string;
   content?: string;
+  cover?: GroupPageCoverId | "";
+  tags?: string[];
+  mode?: GroupPageMode;
+  dailyKey?: string | null;
 }): GroupPage {
   const now = new Date().toISOString();
   return {
@@ -89,9 +98,71 @@ function createGroupPage(input: {
     icon: input.icon ?? "📄",
     content: input.content ?? "",
     favorite: false,
+    cover: input.cover ?? "",
+    tags: input.tags ?? [],
+    mode: input.mode ?? "document",
+    canvas: { nodes: [] },
+    dailyKey: input.dailyKey ?? null,
+    deletedAt: null,
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function normalizeCanvas(value: unknown): GroupPageCanvas {
+  const nodes = (value as Partial<GroupPageCanvas> | null)?.nodes;
+  if (!Array.isArray(nodes)) return { nodes: [] };
+  const colors = new Set<string>(GROUP_ACCENTS);
+  return {
+    nodes: nodes.flatMap((node): GroupCanvasNode[] => {
+      if (typeof node !== "object" || node === null) return [];
+      const candidate = node as Partial<GroupCanvasNode>;
+      if (typeof candidate.id !== "string") return [];
+      const kind =
+        candidate.kind === "shape" || candidate.kind === "text" ? candidate.kind : "note";
+      const x = typeof candidate.x === "number" && Number.isFinite(candidate.x) ? candidate.x : 0;
+      const y = typeof candidate.y === "number" && Number.isFinite(candidate.y) ? candidate.y : 0;
+      const width =
+        typeof candidate.width === "number" &&
+        Number.isFinite(candidate.width) &&
+        candidate.width > 0
+          ? candidate.width
+          : 220;
+      const height =
+        typeof candidate.height === "number" &&
+        Number.isFinite(candidate.height) &&
+        candidate.height > 0
+          ? candidate.height
+          : 160;
+      return [
+        {
+          id: candidate.id,
+          kind,
+          x,
+          y,
+          width,
+          height,
+          color:
+            typeof candidate.color === "string" && colors.has(candidate.color)
+              ? candidate.color
+              : "amber",
+          text: typeof candidate.text === "string" ? candidate.text : "",
+        },
+      ];
+    }),
+  };
+}
+
+/** Drops duplicate and empty tags while keeping the author's order. */
+export function normalizePageTags(tags: ReadonlyArray<string>): string[] {
+  const result: string[] = [];
+  for (const tag of tags) {
+    const trimmed = tag.trim();
+    if (trimmed.length === 0) continue;
+    if (result.some((entry) => entry.toLowerCase() === trimmed.toLowerCase())) continue;
+    result.push(trimmed);
+  }
+  return result;
 }
 
 interface CreateGroupInput {
@@ -146,14 +217,30 @@ interface GroupsState {
 
   addPage: (
     groupId: string,
-    input: { spaceId?: string | null; parentId?: string | null; title?: string; icon?: string },
+    input: {
+      spaceId?: string | null;
+      parentId?: string | null;
+      title?: string;
+      icon?: string;
+      content?: string;
+      cover?: GroupPageCoverId | "";
+      tags?: string[];
+      mode?: GroupPageMode;
+      dailyKey?: string | null;
+    },
   ) => string | null;
   updatePage: (
     groupId: string,
     pageId: string,
     patch: Partial<Omit<GroupPage, "id" | "createdAt" | "updatedAt">>,
   ) => void;
+  /** Moves the page and its subpages to the trash. */
   deletePage: (groupId: string, pageId: string) => void;
+  restorePage: (groupId: string, pageId: string) => boolean;
+  deletePageForever: (groupId: string, pageId: string) => void;
+  emptyPageTrash: (groupId: string) => void;
+  duplicatePage: (groupId: string, pageId: string) => string | null;
+  ensureDailyPage: (groupId: string, spaceId?: string) => string | null;
   togglePageFavorite: (groupId: string, pageId: string) => void;
 
   addPerson: (
@@ -234,18 +321,56 @@ export function firstSpace(group: Group): GroupSpace | null {
 
 export function pageById(group: Group, pageId: string | null): GroupPage | null {
   if (pageId === null) return null;
+  return group.pages.find((page) => page.id === pageId && page.deletedAt === null) ?? null;
+}
+
+export function pageIncludingTrashById(group: Group, pageId: string): GroupPage | null {
   return group.pages.find((page) => page.id === pageId) ?? null;
 }
 
+/** Every page id in the subtree rooted at `pageId`, including the root. */
+export function pageSubtree(pages: ReadonlyArray<GroupPage>, pageId: string): Set<string> {
+  const ids = new Set<string>([pageId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const page of pages) {
+      if (page.parentId !== null && ids.has(page.parentId) && !ids.has(page.id)) {
+        ids.add(page.id);
+        grew = true;
+      }
+    }
+  }
+  return ids;
+}
+
+export function trashedPages(group: Group): GroupPage[] {
+  return group.pages
+    .filter((page) => page.deletedAt !== null)
+    .sort((left, right) => (right.deletedAt ?? "").localeCompare(left.deletedAt ?? ""));
+}
+
+export function dailyPages(group: Group): GroupPage[] {
+  return group.pages
+    .filter((page) => page.dailyKey !== null && page.deletedAt === null)
+    .sort((left, right) => (right.dailyKey ?? "").localeCompare(left.dailyKey ?? ""));
+}
+
+export function todayDailyPage(group: Group): GroupPage | null {
+  const key = dailyKeyFor(new Date());
+  return group.pages.find((page) => page.dailyKey === key && page.deletedAt === null) ?? null;
+}
+
 export function recentPages(group: Group, limit = 6): GroupPage[] {
-  return [...group.pages]
+  return group.pages
+    .filter((page) => page.deletedAt === null)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .slice(0, limit);
 }
 
 export function favoritePages(group: Group): GroupPage[] {
   return group.pages
-    .filter((page) => page.favorite)
+    .filter((page) => page.favorite && page.deletedAt === null)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
@@ -286,6 +411,13 @@ export function normalizeGroups(persisted: unknown): Group[] {
       icon: page.icon ?? "📄",
       content: page.content ?? "",
       favorite: page.favorite ?? false,
+      cover: page.cover ?? "",
+      tags: normalizePageTags(Array.isArray(page.tags) ? page.tags : []),
+      mode: page.mode === "canvas" ? ("canvas" as const) : ("document" as const),
+      canvas: normalizeCanvas(page.canvas),
+      dailyKey:
+        typeof page.dailyKey === "string" && page.dailyKey.length > 0 ? page.dailyKey : null,
+      deletedAt: page.deletedAt ?? null,
       createdAt: page.createdAt ?? createdAt,
       updatedAt: page.updatedAt ?? page.createdAt ?? createdAt,
     }));
@@ -644,6 +776,11 @@ export const useGroupsStore = create<GroupsState>()(
           parentId: input.parentId ?? null,
           title: input.title ?? "Sem título",
           ...(input.icon === undefined ? {} : { icon: input.icon }),
+          ...(input.content === undefined ? {} : { content: input.content }),
+          ...(input.cover === undefined ? {} : { cover: input.cover }),
+          ...(input.tags === undefined ? {} : { tags: input.tags }),
+          ...(input.mode === undefined ? {} : { mode: input.mode }),
+          ...(input.dailyKey === undefined ? {} : { dailyKey: input.dailyKey }),
         });
         set((state) => ({
           groups: state.groups.map((candidate) =>
@@ -675,17 +812,60 @@ export const useGroupsStore = create<GroupsState>()(
       deletePage: (groupId, pageId) => {
         const group = get().groups.find((candidate) => candidate.id === groupId);
         if (group === undefined) return;
-        const doomed = new Set<string>([pageId]);
-        let grew = true;
-        while (grew) {
-          grew = false;
-          for (const page of group.pages) {
-            if (page.parentId !== null && doomed.has(page.parentId) && !doomed.has(page.id)) {
-              doomed.add(page.id);
-              grew = true;
-            }
-          }
-        }
+        const doomed = pageSubtree(group.pages, pageId);
+        const deletedAt = new Date().toISOString();
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? {
+                  ...candidate,
+                  pages: candidate.pages.map((page) =>
+                    doomed.has(page.id) && page.deletedAt === null
+                      ? { ...page, deletedAt, favorite: false }
+                      : page,
+                  ),
+                }
+              : candidate,
+          ),
+        }));
+      },
+
+      restorePage: (groupId, pageId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        const page = group?.pages.find((candidate) => candidate.id === pageId);
+        if (group === undefined || page === undefined || page.deletedAt === null) return false;
+        const restored = pageSubtree(group.pages, pageId);
+        const parentDeleted =
+          page.parentId !== null &&
+          (group.pages.find((candidate) => candidate.id === page.parentId)?.deletedAt ?? null) !==
+            null;
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? {
+                  ...candidate,
+                  pages: candidate.pages.map((entry) =>
+                    entry.id === pageId
+                      ? {
+                          ...entry,
+                          deletedAt: null,
+                          parentId: parentDeleted ? null : entry.parentId,
+                        }
+                      : restored.has(entry.id)
+                        ? { ...entry, deletedAt: null }
+                        : entry,
+                  ),
+                }
+              : candidate,
+          ),
+        }));
+        return true;
+      },
+
+      deletePageForever: (groupId, pageId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return;
+        const doomed = pageSubtree(group.pages, pageId);
         set((state) => ({
           groups: state.groups.map((candidate) =>
             candidate.id === groupId
@@ -702,6 +882,85 @@ export const useGroupsStore = create<GroupsState>()(
               : candidate,
           ),
         }));
+      },
+
+      emptyPageTrash: (groupId) => {
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? {
+                  ...candidate,
+                  pages: candidate.pages.filter((page) => page.deletedAt === null),
+                }
+              : candidate,
+          ),
+        }));
+      },
+
+      duplicatePage: (groupId, pageId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        const source = group?.pages.find((candidate) => candidate.id === pageId);
+        if (group === undefined || source === undefined) return null;
+        const ids = new Map<string, string>();
+        const doomed = pageSubtree(group.pages, pageId);
+        for (const id of doomed) ids.set(id, createId("page"));
+        const now = new Date().toISOString();
+        const copies = group.pages
+          .filter((page) => doomed.has(page.id))
+          .map((page): GroupPage => {
+            const copyId = ids.get(page.id) ?? createId("page");
+            return {
+              ...page,
+              id: copyId,
+              parentId:
+                page.id === pageId ? source.parentId : (ids.get(page.parentId ?? "") ?? null),
+              title: page.id === pageId ? `${page.title} (cópia)` : page.title,
+              favorite: false,
+              dailyKey: null,
+              deletedAt: null,
+              createdAt: now,
+              updatedAt: now,
+            };
+          });
+        const rootId = ids.get(pageId) ?? null;
+        if (rootId === null) return null;
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? { ...candidate, pages: [...candidate.pages, ...copies] }
+              : candidate,
+          ),
+        }));
+        return rootId;
+      },
+
+      ensureDailyPage: (groupId, spaceId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return null;
+        const key = dailyKeyFor(new Date());
+        const existing = group.pages.find((page) => page.dailyKey === key);
+        if (existing !== undefined) {
+          if (existing.deletedAt !== null) get().restorePage(groupId, existing.id);
+          return existing.id;
+        }
+        const targetSpaceId = spaceId ?? group.spaces[0]?.id ?? null;
+        if (targetSpaceId === null) return null;
+        const page = createGroupPage({
+          spaceId: targetSpaceId,
+          parentId: null,
+          title: dailyPageTitle(key),
+          icon: "🗓️",
+          content: dailyPageContent(key),
+          dailyKey: key,
+        });
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? { ...candidate, pages: [...candidate.pages, page] }
+              : candidate,
+          ),
+        }));
+        return page.id;
       },
 
       togglePageFavorite: (groupId, pageId) => {

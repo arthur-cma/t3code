@@ -1,6 +1,9 @@
 import {
+  CalendarDaysIcon,
   ChevronRightIcon,
   ClockIcon,
+  CopyIcon,
+  DownloadIcon,
   FilePlus2Icon,
   FileTextIcon,
   FolderPlusIcon,
@@ -11,10 +14,20 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { dailyKeyFor, dailyPageTitle } from "../../groups/pageDoc";
+import { copyPageLink, exportPageMarkdown } from "../../groups/pageActions";
 import { buildPageTree, searchPages, type PageTreeNode } from "../../groups/pageLogic";
-import { favoritePages, recentPages, useGroupsStore } from "../../groups/groupStore";
+import {
+  dailyPages,
+  favoritePages,
+  pageSubtree,
+  recentPages,
+  trashedPages,
+  useGroupsStore,
+} from "../../groups/groupStore";
 import type { Group, GroupPage, GroupSpace } from "../../groups/types";
 import { cn } from "../../lib/utils";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
@@ -25,6 +38,7 @@ import {
   type GroupContextMenuItem,
 } from "./GroupContextMenu";
 import { CreatePageDialog, CreateSpaceDialog } from "./GroupCreateDialogs";
+import { GroupPageTrashDialog } from "./GroupPageTrashDialog";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -32,21 +46,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
-}
-
-function pageSubtreeIds(pages: ReadonlyArray<GroupPage>, pageId: string): Set<string> {
-  const doomed = new Set<string>([pageId]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const page of pages) {
-      if (page.parentId !== null && doomed.has(page.parentId) && !doomed.has(page.id)) {
-        doomed.add(page.id);
-        grew = true;
-      }
-    }
-  }
-  return doomed;
 }
 
 function PageRow({
@@ -165,8 +164,13 @@ export function GroupPagesSidebar({
   const togglePageFavorite = useGroupsStore((store) => store.togglePageFavorite);
   const updateSpace = useGroupsStore((store) => store.updateSpace);
   const deleteSpace = useGroupsStore((store) => store.deleteSpace);
+  const ensureDailyPage = useGroupsStore((store) => store.ensureDailyPage);
+  const duplicatePage = useGroupsStore((store) => store.duplicatePage);
+  // `minuteTick` is a UTC ISO string; the `Z` makes the local day come out right.
+  const nowMinute = useNowMinute();
 
   const [query, setQuery] = useState("");
+  const [trashOpen, setTrashOpen] = useState(false);
   const [spaceDialogOpen, setSpaceDialogOpen] = useState(false);
   const [pageDraft, setPageDraft] = useState<{ spaceId: string; parentId: string | null } | null>(
     null,
@@ -181,6 +185,17 @@ export function GroupPagesSidebar({
   const recents = recentPages(group, 5);
   const results = query.trim().length > 0 ? searchPages(group.pages, query, 12) : [];
   const searching = query.trim().length > 0;
+  const todayKey = dailyKeyFor(new Date(`${nowMinute}Z`));
+  const today = group.pages.find((page) => page.dailyKey === todayKey && page.deletedAt === null);
+  const dailies = dailyPages(group)
+    .filter((page) => page.dailyKey !== todayKey)
+    .slice(0, 3);
+  const trashCount = trashedPages(group).length;
+
+  const openToday = () => {
+    const pageId = ensureDailyPage(group.id);
+    if (pageId !== null) onOpenPage(pageId);
+  };
 
   const pageItems = (page: GroupPage): GroupContextMenuItem[] => [
     {
@@ -209,8 +224,29 @@ export function GroupPagesSidebar({
       onSelect: () => togglePageFavorite(group.id, page.id),
     },
     {
+      id: "duplicate",
+      label: "Duplicar página",
+      icon: <CopyIcon />,
+      onSelect: () => {
+        const created = duplicatePage(group.id, page.id);
+        if (created !== null) onOpenPage(created);
+      },
+    },
+    {
+      id: "copy-link",
+      label: "Copiar link",
+      icon: <FileTextIcon />,
+      onSelect: () => void copyPageLink(group.id, page.id),
+    },
+    {
+      id: "export",
+      label: "Exportar markdown",
+      icon: <DownloadIcon />,
+      onSelect: () => exportPageMarkdown(page),
+    },
+    {
       id: "delete",
-      label: "Excluir página",
+      label: "Mover para a lixeira",
       icon: <Trash2Icon />,
       separatorBefore: true,
       variant: "destructive",
@@ -253,7 +289,7 @@ export function GroupPagesSidebar({
   const submitDelete = () => {
     if (confirmDelete === null) return;
     if (confirmDelete.kind === "page") {
-      const doomed = pageSubtreeIds(group.pages, confirmDelete.id);
+      const doomed = pageSubtree(group.pages, confirmDelete.id);
       deletePage(group.id, confirmDelete.id);
       if (activePageId !== null && doomed.has(activePageId)) onClearPage();
     } else {
@@ -299,6 +335,46 @@ export function GroupPagesSidebar({
           value={query}
         />
       </div>
+
+      {searching ? null : (
+        <>
+          <div className="flex items-center justify-between pr-1 pl-2">
+            <SectionLabel>Diário</SectionLabel>
+            <Button
+              aria-label="Abrir diário de hoje"
+              onClick={openToday}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <PlusIcon />
+            </Button>
+          </div>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={today?.id === activePageId}
+                onClick={openToday}
+                size="sm"
+              >
+                <CalendarDaysIcon />
+                <span className="truncate">
+                  {today?.title ?? `Hoje · ${dailyPageTitle(todayKey)}`}
+                </span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            {dailies.map((page) => (
+              <SidebarMenuItem key={page.id}>
+                <PageRow
+                  active={page.id === activePageId}
+                  onContextMenu={pageMenu.openMenu}
+                  onOpenPage={onOpenPage}
+                  page={page}
+                />
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </>
+      )}
 
       {searching ? (
         <SidebarMenu>
@@ -411,6 +487,27 @@ export function GroupPagesSidebar({
         </>
       ) : null}
 
+      {searching ? null : (
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => setTrashOpen(true)} size="sm">
+              <Trash2Icon />
+              <span className="truncate">Lixeira</span>
+              {trashCount === 0 ? null : (
+                <span className="ml-auto text-2xs text-sidebar-muted-foreground">{trashCount}</span>
+              )}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      )}
+
+      <GroupPageTrashDialog
+        group={group}
+        onOpenChange={setTrashOpen}
+        onRestored={onOpenPage}
+        open={trashOpen}
+      />
+
       <GroupContextMenu
         items={pageMenu.state === null ? [] : pageItems(pageMenu.state.target)}
         onClose={pageMenu.closeMenu}
@@ -480,11 +577,11 @@ export function GroupPagesSidebar({
         title={rename?.kind === "space" ? "Renomear espaço" : "Renomear página"}
       />
       <GroupConfirmDialog
-        confirmLabel={confirmDelete?.kind === "space" ? "Excluir espaço" : "Excluir página"}
+        confirmLabel={confirmDelete?.kind === "space" ? "Excluir espaço" : "Mover para a lixeira"}
         description={
           confirmDelete?.kind === "space"
             ? "Todas as páginas deste espaço serão removidas. Esta ação não pode ser desfeita."
-            : "A página e as subpáginas dela serão removidas. Esta ação não pode ser desfeita."
+            : "A página e as subpáginas vão para a lixeira e podem ser restauradas depois."
         }
         onConfirm={submitDelete}
         onOpenChange={(open) => {
@@ -496,7 +593,7 @@ export function GroupPagesSidebar({
             ? "Excluir?"
             : confirmDelete.kind === "space"
               ? `Excluir espaço ${confirmDelete.name}?`
-              : `Excluir página ${confirmDelete.name}?`
+              : `Mover ${confirmDelete.name} para a lixeira?`
         }
       />
     </div>

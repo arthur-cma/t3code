@@ -11,6 +11,7 @@ import { useState } from "react";
 
 import { uniqueHandle, uniquePersonHandle } from "../../groups/groupLogic";
 import { useGroupsStore } from "../../groups/groupStore";
+import { PAGE_TEMPLATES, pageTemplateById } from "../../groups/pageDoc";
 import type { Group } from "../../groups/types";
 import { cn } from "../../lib/utils";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
@@ -227,13 +228,15 @@ function PageDialogBody({
   onCreated: (pageId: string) => void;
 }) {
   const addPage = useGroupsStore((store) => store.addPage);
+  const [templateId, setTemplateId] = useState("blank");
   const [title, setTitle] = useState("");
   const [spaceId, setSpaceId] = useState(defaultSpaceId ?? group.spaces[0]?.id ?? "");
   const [parentId, setParentId] = useState(defaultParentId ?? "none");
 
   const space = group.spaces.find((candidate) => candidate.id === spaceId) ?? null;
-  const parents = group.pages.filter((page) => page.spaceId === spaceId);
+  const parents = group.pages.filter((page) => page.spaceId === spaceId && page.deletedAt === null);
   const parent = parents.find((page) => page.id === parentId) ?? null;
+  const template = pageTemplateById(templateId) ?? PAGE_TEMPLATES[0]!;
 
   const submit = () => {
     if (title.trim().length === 0 || space === null) return;
@@ -241,6 +244,9 @@ function PageDialogBody({
       spaceId: space.id,
       parentId: parent === null ? null : parent.id,
       title: title.trim(),
+      icon: template.icon,
+      content: template.content,
+      mode: template.mode,
     });
     if (created === null) return;
     onOpenChange(false);
@@ -262,6 +268,39 @@ function PageDialogBody({
           </p>
         ) : (
           <>
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel>Modelo</FieldLabel>
+              <div className="grid grid-cols-2 gap-1.5">
+                {PAGE_TEMPLATES.map((candidate) => (
+                  <button
+                    aria-pressed={candidate.id === template.id}
+                    className={cn(
+                      "flex items-start gap-2 rounded-md border px-2 py-1.5 text-left outline-hidden transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      candidate.id === template.id ? "border-ring bg-muted/60" : "border-border/60",
+                    )}
+                    key={candidate.id}
+                    onClick={() => {
+                      setTemplateId(candidate.id);
+                      if (title.trim().length === 0 || candidate.title.length === 0) return;
+                      setTitle(candidate.title);
+                    }}
+                    type="button"
+                  >
+                    <span aria-hidden className="text-sm leading-5">
+                      {candidate.icon}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-medium text-foreground">
+                        {candidate.label}
+                      </span>
+                      <span className="block text-2xs leading-snug text-muted-foreground">
+                        {candidate.description}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <Field label="Título">
               <Input
                 autoFocus
@@ -272,7 +311,7 @@ function PageDialogBody({
                     submit();
                   }
                 }}
-                placeholder="Decisões da semana"
+                placeholder={template.title.length > 0 ? template.title : "Decisões da semana"}
                 value={title}
               />
             </Field>

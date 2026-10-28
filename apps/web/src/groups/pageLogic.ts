@@ -59,17 +59,22 @@ export function pageOutgoingLinks(
   pages: ReadonlyArray<GroupPage>,
   page: GroupPage,
 ): Array<{ title: string; page: GroupPage | null }> {
+  const visible = livePages(pages);
   return extractWikiLinks(page.content).map((title) => ({
     title,
-    page: resolveWikiLink(pages, title),
+    page: resolveWikiLink(visible, title),
   }));
+}
+
+function livePages(pages: ReadonlyArray<GroupPage>): GroupPage[] {
+  return pages.filter((page) => page.deletedAt === null);
 }
 
 /** Pages whose body links to `page`. */
 export function pageBacklinks(pages: ReadonlyArray<GroupPage>, page: GroupPage): GroupPage[] {
   const target = normalizePageTitle(page.title);
   if (target.length === 0) return [];
-  return pages.filter((candidate) => {
+  return livePages(pages).filter((candidate) => {
     if (candidate.id === page.id) return false;
     return extractWikiLinks(candidate.content).some(
       (title) => normalizePageTitle(title) === target,
@@ -78,7 +83,7 @@ export function pageBacklinks(pages: ReadonlyArray<GroupPage>, page: GroupPage):
 }
 
 export function buildPageTree(pages: ReadonlyArray<GroupPage>, spaceId: string): PageTreeNode[] {
-  const inSpace = pages.filter((page) => page.spaceId === spaceId);
+  const inSpace = livePages(pages).filter((page) => page.spaceId === spaceId);
   const ids = new Set(inSpace.map((page) => page.id));
   const childrenByParent = new Map<string, GroupPage[]>();
   const roots: GroupPage[] = [];
@@ -130,11 +135,14 @@ export function searchPages(
   limit = 20,
 ): GroupPage[] {
   const needle = normalizePageTitle(query);
-  if (needle.length === 0) return [...pages].slice(0, limit);
-  const scored = pages.flatMap((page) => {
+  const visible = livePages(pages);
+  if (needle.length === 0) return visible.slice(0, limit);
+  const scored = visible.flatMap((page) => {
     const title = normalizePageTitle(page.title);
     const content = normalizePageTitle(page.content);
+    const tags = page.tags.map((tag) => normalizePageTitle(tag));
     if (title.startsWith(needle)) return [{ page, score: 0 }];
+    if (tags.some((tag) => tag.includes(needle))) return [{ page, score: 1 }];
     if (title.includes(needle)) return [{ page, score: 1 }];
     if (content.includes(needle)) return [{ page, score: 2 }];
     return [];
@@ -147,7 +155,8 @@ export function searchPages(
 export function buildPageGraph(pages: ReadonlyArray<GroupPage>): PageGraph {
   const edges: PageGraphEdge[] = [];
   const seen = new Set<string>();
-  for (const page of pages) {
+  const visible = livePages(pages);
+  for (const page of visible) {
     for (const link of pageOutgoingLinks(pages, page)) {
       if (link.page === null || link.page.id === page.id) continue;
       const key = `${page.id}->${link.page.id}`;
@@ -156,7 +165,7 @@ export function buildPageGraph(pages: ReadonlyArray<GroupPage>): PageGraph {
       edges.push({ from: page.id, to: link.page.id });
     }
   }
-  const nodes = pages.map((page) => ({
+  const nodes = visible.map((page) => ({
     id: page.id,
     title: page.title,
     links: edges.filter((edge) => edge.from === page.id || edge.to === page.id).length,

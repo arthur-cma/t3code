@@ -1,6 +1,15 @@
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
-import { channelMessages, normalizeGroups, useGroupsStore } from "./groupStore";
+import {
+  channelMessages,
+  dailyPages,
+  normalizeGroups,
+  pageById,
+  pageIncludingTrashById,
+  recentPages,
+  trashedPages,
+  useGroupsStore,
+} from "./groupStore";
 import { DEFAULT_GROUP_SETTINGS } from "./types";
 
 const store = () => useGroupsStore.getState();
@@ -289,5 +298,134 @@ describe("groupStore", () => {
     store().resetAll();
     expect(store().groups).toHaveLength(0);
     expect(store().settings).toEqual(DEFAULT_GROUP_SETTINGS);
+  });
+
+  it("fills the page fields added after pages shipped", () => {
+    const [group] = normalizeGroups([
+      {
+        id: "group_antigo",
+        name: "Estúdio",
+        spaces: [{ id: "space_1", name: "Geral", icon: "📁", createdAt: "2026-01-01T00:00:00Z" }],
+        pages: [
+          {
+            id: "page_1",
+            spaceId: "space_1",
+            title: "Notas",
+            content: "texto",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    ]);
+
+    expect(group?.pages[0]).toMatchObject({
+      icon: "📄",
+      favorite: false,
+      cover: "",
+      tags: [],
+      mode: "document",
+      canvas: { nodes: [] },
+      dailyKey: null,
+      deletedAt: null,
+    });
+  });
+
+  it("normalizes canvas nodes and drops unusable ones", () => {
+    const [group] = normalizeGroups([
+      {
+        id: "group_1",
+        name: "Estúdio",
+        pages: [
+          {
+            id: "page_1",
+            spaceId: "space_1",
+            title: "Quadro",
+            mode: "canvas",
+            canvas: {
+              nodes: [
+                { id: "node_1", kind: "shape", x: 10, y: 20, color: "sky", text: "Oi" },
+                { kind: "note" },
+                "inválido",
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(group?.pages[0]?.canvas.nodes).toHaveLength(1);
+    expect(group?.pages[0]?.canvas.nodes[0]).toMatchObject({
+      id: "node_1",
+      kind: "shape",
+      x: 10,
+      y: 20,
+      width: 220,
+      height: 160,
+      color: "sky",
+    });
+  });
+
+  it("moves pages and subpages to the trash and restores them", () => {
+    const groupId = createGroup();
+    const group = store().groups[0]!;
+    const spaceId = group.spaces[0]!.id;
+    const root = store().addPage(groupId, { spaceId, title: "Raiz" }) ?? "";
+    const child = store().addPage(groupId, { spaceId, parentId: root, title: "Filha" }) ?? "";
+
+    store().deletePage(groupId, root);
+    const trashed = store().groups[0]!;
+    expect(pageById(trashed, root)).toBeNull();
+    expect(recentPages(trashed).map((page) => page.id)).not.toContain(root);
+    expect(trashedPages(trashed).map((page) => page.id)).toEqual(
+      expect.arrayContaining([root, child]),
+    );
+
+    expect(store().restorePage(groupId, root)).toBe(true);
+    const restored = store().groups[0]!;
+    expect(pageById(restored, child)?.parentId).toBe(root);
+
+    store().deletePage(groupId, root);
+    store().deletePageForever(groupId, root);
+    const purged = store().groups[0]!;
+    expect(pageIncludingTrashById(purged, root)).toBeNull();
+    expect(pageIncludingTrashById(purged, child)).toBeNull();
+    expect(store().restorePage(groupId, root)).toBe(false);
+  });
+
+  it("duplicates a page together with its subpages", () => {
+    const groupId = createGroup();
+    const spaceId = store().groups[0]!.spaces[0]!.id;
+    const root = store().addPage(groupId, { spaceId, title: "Raiz", content: "corpo" }) ?? "";
+    store().addPage(groupId, { spaceId, parentId: root, title: "Filha" });
+
+    const copyId = store().duplicatePage(groupId, root);
+    expect(copyId).not.toBeNull();
+    const group = store().groups[0]!;
+    const copy = pageIncludingTrashById(group, copyId ?? "");
+    expect(copy).toMatchObject({ title: "Raiz (cópia)", content: "corpo", favorite: false });
+    expect(group.pages.find((page) => page.parentId === copyId)?.title).toBe("Filha");
+  });
+
+  it("reuses the same daily page for today", () => {
+    vi.setSystemTime(new Date(2026, 9, 28, 12));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+
+    const groupId = createGroup();
+    const first = store().ensureDailyPage(groupId);
+    const second = store().ensureDailyPage(groupId);
+
+    expect(first).not.toBeNull();
+    expect(second).toBe(first);
+    const group = store().groups[0]!;
+    const page = pageIncludingTrashById(group, first ?? "");
+    expect(page?.dailyKey).toBe("2026-10-28");
+    expect(dailyPages(group)).toHaveLength(1);
+
+    store().deletePage(groupId, first ?? "");
+    expect(pageById(store().groups[0]!, first ?? "")).toBeNull();
+    expect(store().ensureDailyPage(groupId)).toBe(first);
+    expect(pageById(store().groups[0]!, first ?? "")).not.toBeNull();
   });
 });

@@ -2528,6 +2528,180 @@ code {
   margin: 0;
 }
 
+/* Group page block editor (Tiptap). The stored body stays Markdown so wikilinks,
+   backlinks and export keep working; only the surface renders styled blocks. */
+.page-tiptap {
+  position: relative;
+  line-height: 1.7;
+}
+
+.page-tiptap:focus,
+.page-tiptap .ProseMirror:focus {
+  outline: none;
+}
+
+.page-tiptap > :first-child {
+  margin-top: 0;
+}
+
+.page-tiptap > :last-child {
+  margin-bottom: 0;
+}
+
+.page-tiptap p {
+  margin: 0.5rem 0;
+}
+
+.page-tiptap h1,
+.page-tiptap h2,
+.page-tiptap h3,
+.page-tiptap h4,
+.page-tiptap h5,
+.page-tiptap h6 {
+  margin: 1.4rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--contrast-foreground);
+}
+
+.page-tiptap h1 {
+  font-size: 1.6rem;
+}
+
+.page-tiptap h2 {
+  font-size: 1.3rem;
+}
+
+.page-tiptap h3 {
+  font-size: 1.1rem;
+}
+
+.page-tiptap h4,
+.page-tiptap h5,
+.page-tiptap h6 {
+  font-size: 1rem;
+}
+
+.page-tiptap ul,
+.page-tiptap ol {
+  margin: 0.5rem 0;
+  padding-inline-start: 1.4rem;
+}
+
+.page-tiptap ul {
+  list-style-type: disc;
+}
+
+.page-tiptap ol {
+  list-style-type: decimal;
+}
+
+.page-tiptap ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
+
+.page-tiptap ol > li[data-marker]::marker {
+  content: attr(data-marker) " ";
+}
+
+.page-tiptap ul ul {
+  list-style-type: circle;
+}
+
+.page-tiptap ul ul ul {
+  list-style-type: square;
+}
+
+.page-tiptap blockquote {
+  margin: 0.85rem 0;
+  border-inline-start: 2px solid var(--border);
+  padding-inline-start: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.page-tiptap pre {
+  margin: 0.85rem 0;
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--muted-foreground) 10%, transparent);
+  padding: 0.75rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.55;
+}
+
+.page-tiptap :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: color-mix(in oklab, var(--muted-foreground) 12%, transparent);
+  border-radius: 0.3em;
+  padding: 0.05em 0.25em;
+}
+
+.page-tiptap hr {
+  margin: 1.5rem 0;
+  border-color: var(--border);
+}
+
+.page-tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.page-tiptap ul[data-type="taskList"] ul[data-type="taskList"] {
+  padding-inline-start: 1.375rem;
+}
+
+.page-tiptap li[data-checked] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.15rem 0;
+}
+
+.page-tiptap li[data-checked] > label {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 1lh;
+  cursor: pointer;
+}
+
+.page-tiptap li[data-checked] > label input[type="checkbox"] {
+  display: block;
+  margin: 0;
+  width: 0.95rem;
+  height: 0.95rem;
+  cursor: pointer;
+}
+
+.page-tiptap li[data-checked] > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.page-tiptap li[data-checked] > div > p {
+  margin: 0;
+}
+
+.page-tiptap .page-wikilink {
+  cursor: pointer;
+  border-radius: 0.25rem;
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  padding: 0.05em 0.2em;
+  color: var(--primary);
+}
+
+.page-tiptap .page-wikilink:hover {
+  background: color-mix(in oklab, var(--primary) 20%, transparent);
+}
+
+/* Edgeless page board. */
+.page-canvas-grid {
+  background-color: color-mix(in oklab, var(--muted-foreground) 4%, transparent);
+  background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+}
+
 @layer components {
   .chat-composer-lane {
     padding-inline-start: calc(
