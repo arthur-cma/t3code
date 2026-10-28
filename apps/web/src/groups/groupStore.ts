@@ -3,25 +3,30 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "../lib/storage";
 import { randomUUID } from "../lib/utils";
+import { uniquePersonHandle } from "./groupLogic";
 import {
   DEFAULT_GROUP_SETTINGS,
   GROUP_ACCENTS,
   type Group,
   type GroupAccent,
+  type GroupAgentBinding,
   type GroupChannel,
   type GroupChannelKind,
   type GroupMeeting,
   type GroupMember,
   type GroupMessage,
   type GroupPage,
+  type GroupPerson,
   type GroupProjectRef,
   type GroupSettings,
   type GroupSpace,
   type GroupThreadLink,
 } from "./types";
+import type { GroupSharePayload } from "./groupSync";
+import { mergeGroups, mergeMessages } from "./groupSync";
 
 const GROUPS_STORAGE_KEY = "t3code:groups:v1";
-const GROUPS_STORAGE_VERSION = 3;
+const GROUPS_STORAGE_VERSION = 4;
 
 function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
@@ -41,6 +46,28 @@ function createGroupMember(member: Omit<GroupMember, "id">): GroupMember {
 }
 
 const DEFAULT_SPACE_ICON = "📁";
+
+function createGroupPerson(input: {
+  name: string;
+  handle: string;
+  role?: string;
+  accent?: GroupAccent;
+  isOwner?: boolean;
+}): GroupPerson {
+  return {
+    id: createId("person"),
+    name: input.name,
+    handle: input.handle,
+    accent: input.accent ?? "slate",
+    role: input.role ?? "",
+    isOwner: input.isOwner ?? false,
+    joinedAt: new Date().toISOString(),
+  };
+}
+
+function createOwnerPerson(): GroupPerson {
+  return createGroupPerson({ name: "Você", handle: "voce", role: "Proprietário", isOwner: true });
+}
 
 function createGroupSpace(name: string, icon = DEFAULT_SPACE_ICON): GroupSpace {
   return { id: createId("space"), name, icon, createdAt: new Date().toISOString() };
@@ -129,6 +156,25 @@ interface GroupsState {
   deletePage: (groupId: string, pageId: string) => void;
   togglePageFavorite: (groupId: string, pageId: string) => void;
 
+  addPerson: (
+    groupId: string,
+    person: { name: string; handle: string; role?: string; accent?: GroupAccent },
+  ) => string | null;
+  updatePerson: (
+    groupId: string,
+    personId: string,
+    patch: Partial<Omit<GroupPerson, "id" | "joinedAt">>,
+  ) => void;
+  removePerson: (groupId: string, personId: string) => boolean;
+
+  addBinding: (
+    groupId: string,
+    binding: Omit<GroupAgentBinding, "id" | "createdAt">,
+  ) => string | null;
+  removeBinding: (groupId: string, bindingId: string) => void;
+
+  importGroupShare: (payload: GroupSharePayload) => string;
+
   addMessage: (message: GroupMessage) => void;
   appendUserMessage: (input: {
     channelId: string;
@@ -214,6 +260,7 @@ function migrateGroups(persisted: unknown): Group[] {
       ...member,
       role: member.role ?? "",
       reportsTo: member.reportsTo ?? null,
+      personId: member.personId ?? null,
     }));
     const spaces =
       Array.isArray(group.spaces) && group.spaces.length > 0
@@ -249,6 +296,11 @@ function migrateGroups(persisted: unknown): Group[] {
         meetings: group.meetings ?? [],
         spaces,
         pages,
+        people:
+          Array.isArray(group.people) && group.people.length > 0
+            ? group.people
+            : [createOwnerPerson()],
+        bindings: Array.isArray(group.bindings) ? group.bindings : [],
         createdAt: group.createdAt ?? new Date().toISOString(),
       },
     ];
@@ -281,6 +333,8 @@ export const useGroupsStore = create<GroupsState>()(
           meetings: [],
           spaces: [createGroupSpace("Geral")],
           pages: [],
+          people: [createOwnerPerson()],
+          bindings: [],
           createdAt: new Date().toISOString(),
         };
         set((state) => ({
@@ -643,6 +697,122 @@ export const useGroupsStore = create<GroupsState>()(
         }));
       },
 
+      addPerson: (groupId, person) => {
+        const name = person.name.trim();
+        if (name.length === 0) return null;
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return null;
+        const handle = uniquePersonHandle(person.handle || name, group.people);
+        const created = createGroupPerson({
+          name,
+          handle,
+          ...(person.role === undefined ? {} : { role: person.role }),
+          ...(person.accent === undefined ? {} : { accent: person.accent }),
+        });
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? { ...candidate, people: [...candidate.people, created] }
+              : candidate,
+          ),
+        }));
+        return created.id;
+      },
+
+      updatePerson: (groupId, personId, patch) => {
+        set((state) => ({
+          groups: state.groups.map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  people: group.people.map((person) =>
+                    person.id === personId ? { ...person, ...patch } : person,
+                  ),
+                }
+              : group,
+          ),
+        }));
+      },
+
+      removePerson: (groupId, personId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        const person = group?.people.find((candidate) => candidate.id === personId);
+        if (group === undefined || person === undefined || person.isOwner) return false;
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? {
+                  ...candidate,
+                  people: candidate.people.filter((entry) => entry.id !== personId),
+                  members: candidate.members.map((member) =>
+                    member.personId === personId ? { ...member, personId: null } : member,
+                  ),
+                  bindings: candidate.bindings.filter((binding) => binding.personId !== personId),
+                }
+              : candidate,
+          ),
+        }));
+        return true;
+      },
+
+      addBinding: (groupId, binding) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return null;
+        if (!group.members.some((member) => member.id === binding.memberId)) return null;
+        const duplicate = group.bindings.some(
+          (entry) =>
+            entry.memberId === binding.memberId &&
+            entry.personId === binding.personId &&
+            entry.instanceId === binding.instanceId &&
+            entry.model === binding.model,
+        );
+        if (duplicate) return null;
+        const created: GroupAgentBinding = {
+          ...binding,
+          id: createId("binding"),
+          createdAt: new Date().toISOString(),
+        };
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? { ...candidate, bindings: [...candidate.bindings, created] }
+              : candidate,
+          ),
+        }));
+        return created.id;
+      },
+
+      removeBinding: (groupId, bindingId) => {
+        set((state) => ({
+          groups: state.groups.map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  bindings: group.bindings.filter((binding) => binding.id !== bindingId),
+                }
+              : group,
+          ),
+        }));
+      },
+
+      importGroupShare: (payload) => {
+        const remote = payload.group;
+        const existing = get().groups.find((group) => group.id === remote.id) ?? null;
+        const merged = existing === null ? remote : mergeGroups(existing, remote);
+        set((state) => {
+          const groups =
+            existing === null
+              ? [...state.groups, merged]
+              : state.groups.map((group) => (group.id === merged.id ? merged : group));
+          return {
+            groups,
+            messages: mergeMessages(state.messages, payload.messages),
+            activeGroupId: merged.id,
+          };
+        });
+        return merged.id;
+      },
+
       addMessage: (message) => {
         set((state) => ({
           messages: {
@@ -746,7 +916,7 @@ export const useGroupsStore = create<GroupsState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       migrate: (persisted, version) => {
-        if (version < 3) {
+        if (version < 4) {
           const state = persisted as { groups?: unknown } | null;
           return { ...state, groups: migrateGroups(state?.groups) } as unknown as GroupsState;
         }

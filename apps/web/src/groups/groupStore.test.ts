@@ -65,6 +65,7 @@ describe("groupStore", () => {
       autoRespond: true,
       role: "Design",
       reportsTo: null,
+      personId: null,
     });
 
     expect(store().groups[0]?.members).toHaveLength(1);
@@ -116,6 +117,103 @@ describe("groupStore", () => {
     expect(store().messages[channelId]).toBeUndefined();
     expect(store().links).toHaveLength(0);
     expect(store().activeGroupId).toBeNull();
+  });
+
+  it("adds people, connects their AIs and removes them safely", () => {
+    const groupId = createGroup();
+    const owner = store().groups[0]?.people[0];
+    expect(owner?.isOwner).toBe(true);
+
+    const personId = store().addPerson(groupId, {
+      name: "Bruno",
+      handle: "bruno",
+      role: "Produto",
+    });
+    expect(personId).not.toBeNull();
+    expect(store().addPerson(groupId, { name: "   ", handle: "" })).toBeNull();
+
+    const memberId = store().addMember(groupId, {
+      name: "Ana",
+      handle: "ana",
+      instanceId: "codex",
+      driverKind: "codex",
+      model: "gpt-5",
+      autoRespond: true,
+      role: "Design",
+      reportsTo: null,
+      personId: null,
+    });
+
+    store().updateMember(groupId, memberId, { personId });
+    const bindingId = store().addBinding(groupId, {
+      memberId,
+      personId: personId ?? "",
+      instanceId: "codex",
+      driverKind: "codex",
+      model: "gpt-5",
+      label: "Bruno · Codex",
+    });
+    expect(bindingId).not.toBeNull();
+    expect(
+      store().addBinding(groupId, {
+        memberId,
+        personId: personId ?? "",
+        instanceId: "codex",
+        driverKind: "codex",
+        model: "gpt-5",
+        label: "Bruno · Codex",
+      }),
+    ).toBeNull();
+
+    expect(store().removePerson(groupId, owner?.id ?? "")).toBe(false);
+    expect(store().removePerson(groupId, personId ?? "")).toBe(true);
+
+    const group = store().groups.find((candidate) => candidate.id === groupId);
+    expect(group?.people.map((person) => person.id)).not.toContain(personId);
+    expect(group?.bindings).toHaveLength(0);
+    expect(group?.members[0]?.personId).toBeNull();
+  });
+
+  it("imports an invite and merges it into the existing group", () => {
+    const groupId = createGroup();
+    const group = store().groups.find((candidate) => candidate.id === groupId);
+    expect(group).toBeDefined();
+    if (group === undefined) return;
+
+    const channelId = group.channels[0]?.id ?? "";
+    store().appendUserMessage({ channelId, text: "Bem-vindo" });
+
+    const imported = store().importGroupShare({
+      kind: "t3code.group.share",
+      version: 1,
+      exportedAt: "2026-01-01T00:00:00.000Z",
+      group: {
+        ...group,
+        channels: [
+          ...group.channels,
+          { id: "channel_novo", name: "design", topic: "", kind: "text", memberId: null },
+        ],
+      },
+      messages: {
+        channel_novo: [
+          {
+            id: "message_novo",
+            channelId: "channel_novo",
+            kind: "user",
+            authorId: null,
+            authorName: "Bruno",
+            text: "Oi",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    expect(imported).toBe(groupId);
+    expect(store().groups).toHaveLength(1);
+    expect(store().groups[0]?.channels.map((channel) => channel.name)).toEqual(["geral", "design"]);
+    expect(store().messages.channel_novo).toHaveLength(1);
+    expect(store().activeGroupId).toBe(groupId);
   });
 
   it("updates settings and resets everything", () => {

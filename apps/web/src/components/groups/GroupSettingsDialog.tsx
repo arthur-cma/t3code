@@ -107,6 +107,7 @@ export function GroupSettingsDialog({
       autoRespond: memberAutoRespond,
       role: memberRole.trim(),
       reportsTo: null,
+      personId: null,
     });
     resetMemberForm();
   };
@@ -287,7 +288,7 @@ export function GroupSettingsDialog({
                             </Button>
                           </div>
                         </div>
-                        <div className="grid gap-2 pl-10 sm:grid-cols-2">
+                        <div className="grid gap-2 pl-10 sm:grid-cols-3">
                           <Input
                             aria-label={`Cargo de ${member.name}`}
                             onChange={(event) =>
@@ -326,6 +327,34 @@ export function GroupSettingsDialog({
                                     {candidate.name}
                                   </SelectItem>
                                 ))}
+                            </SelectPopup>
+                          </Select>
+                          <Select
+                            onValueChange={(value) => {
+                              if (typeof value !== "string") return;
+                              updateMember(group.id, member.id, {
+                                personId: value === "none" ? null : value,
+                              });
+                            }}
+                            value={member.personId ?? "none"}
+                          >
+                            <SelectTrigger
+                              aria-label={`Pessoa que opera ${member.name}`}
+                              className="w-full"
+                              size="sm"
+                            >
+                              <SelectValue>
+                                {group.people.find((person) => person.id === member.personId)
+                                  ?.name ?? "Sem operador"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectPopup align="start" alignItemWithTrigger={false}>
+                              <SelectItem value="none">Sem operador</SelectItem>
+                              {group.people.map((person) => (
+                                <SelectItem key={person.id} value={person.id}>
+                                  {person.name}
+                                </SelectItem>
+                              ))}
                             </SelectPopup>
                           </Select>
                         </div>

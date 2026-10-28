@@ -21,6 +21,16 @@ export interface GroupChannel {
   memberId: string | null;
 }
 
+export interface GroupPerson {
+  id: string;
+  name: string;
+  handle: string;
+  accent: GroupAccent;
+  role: string;
+  isOwner: boolean;
+  joinedAt: string;
+}
+
 export interface GroupMember {
   id: string;
   name: string;
@@ -31,6 +41,19 @@ export interface GroupMember {
   autoRespond: boolean;
   role: string;
   reportsTo: string | null;
+  personId: string | null;
+}
+
+/** A person's own provider/model connected to an agent of the group. */
+export interface GroupAgentBinding {
+  id: string;
+  memberId: string;
+  personId: string;
+  instanceId: string;
+  driverKind: string;
+  model: string;
+  label: string;
+  createdAt: string;
 }
 
 export interface GroupMeetingAgendaItem {
@@ -81,6 +104,8 @@ export interface Group {
   meetings: GroupMeeting[];
   spaces: GroupSpace[];
   pages: GroupPage[];
+  people: GroupPerson[];
+  bindings: GroupAgentBinding[];
   createdAt: string;
 }
 

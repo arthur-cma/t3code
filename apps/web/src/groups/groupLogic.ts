@@ -26,6 +26,16 @@ function normalizeSearch(value: string): string {
     .toLowerCase();
 }
 
+export function uniquePersonHandle(
+  base: string,
+  people: ReadonlyArray<{ handle: string }>,
+): string {
+  return uniqueHandle(
+    base,
+    people.map((person) => person.handle),
+  );
+}
+
 export function uniqueHandle(base: string, existing: ReadonlyArray<string>): string {
   const normalized = normalizeHandle(base) || "agente";
   const taken = new Set(existing.map((handle) => handle.toLowerCase()));

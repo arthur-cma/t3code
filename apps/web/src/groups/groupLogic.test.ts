@@ -27,6 +27,7 @@ function member(overrides: Partial<GroupMember> & Pick<GroupMember, "id" | "hand
     autoRespond: false,
     role: "",
     reportsTo: null,
+    personId: null,
     ...overrides,
   };
 }
@@ -48,6 +49,18 @@ function group(members: GroupMember[]): Group {
     meetings: [],
     spaces: [{ id: "space_1", name: "Geral", icon: "📁", createdAt: "2026-01-01T00:00:00.000Z" }],
     pages: [],
+    people: [
+      {
+        id: "person_1",
+        name: "Você",
+        handle: "voce",
+        accent: "slate",
+        role: "Proprietário",
+        isOwner: true,
+        joinedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    bindings: [],
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }

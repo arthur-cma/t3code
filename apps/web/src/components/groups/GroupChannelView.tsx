@@ -6,6 +6,7 @@ import {
   NetworkIcon,
   SendIcon,
   SettingsIcon,
+  UserPlusIcon,
   UsersIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -31,6 +32,7 @@ import { SidebarInset } from "../ui/sidebar";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { GroupAvatar } from "./GroupAvatar";
+import { GroupCollaborationDialog } from "./GroupCollaborationDialog";
 import { GroupMeetingRoom } from "./GroupMeetingRoom";
 import { GroupMembersPanel } from "./GroupMembersPanel";
 import { GroupMessageRow } from "./GroupMessageRow";
@@ -56,6 +58,7 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
   const { send, sending } = useGroupSend(group, channel, project);
   const [draft, setDraft] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [collabOpen, setCollabOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(true);
   const [orgOpen, setOrgOpen] = useState(false);
   const [meetingOpen, setMeetingOpen] = useState(false);
@@ -205,6 +208,14 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
           variant="ghost"
         >
           <UsersIcon />
+        </Button>
+        <Button
+          aria-label="Colaboração e convites"
+          onClick={() => setCollabOpen(true)}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <UserPlusIcon />
         </Button>
         <Button
           aria-label="Configurações do grupo"
@@ -398,6 +409,15 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
       </div>
 
       <GroupSettingsDialog group={group} onOpenChange={setSettingsOpen} open={settingsOpen} />
+      <GroupCollaborationDialog
+        group={group}
+        onOpenChange={setCollabOpen}
+        onOpenGroup={(groupId) => {
+          setCollabOpen(false);
+          void navigate({ to: "/groups/$groupId", params: { groupId } });
+        }}
+        open={collabOpen}
+      />
       <GroupOrgChart
         group={group}
         onEditMembers={() => {
