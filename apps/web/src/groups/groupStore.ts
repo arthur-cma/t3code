@@ -26,7 +26,7 @@ import type { GroupSharePayload } from "./groupSync";
 import { mergeGroups, mergeMessages } from "./groupSync";
 
 const GROUPS_STORAGE_KEY = "t3code:groups:v1";
-const GROUPS_STORAGE_VERSION = 4;
+const GROUPS_STORAGE_VERSION = 5;
 
 function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
@@ -249,13 +249,18 @@ export function favoritePages(group: Group): GroupPage[] {
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-/** Persisted v1 groups predate DMs, roles, hierarchy, meetings, spaces and pages. */
-function migrateGroups(persisted: unknown): Group[] {
+/**
+ * Repairs groups persisted by older builds (or written mid-upgrade by an HMR reload), where
+ * DMs, roles, hierarchy, meetings, spaces, pages, people and bindings did not exist yet.
+ * Ids are derived from the group id so repeated runs stay stable.
+ */
+export function normalizeGroups(persisted: unknown): Group[] {
   if (!Array.isArray(persisted)) return [];
   return persisted.flatMap((value): Group[] => {
     if (typeof value !== "object" || value === null) return [];
     const group = value as Partial<Group>;
     if (typeof group.id !== "string" || typeof group.name !== "string") return [];
+    const createdAt = group.createdAt ?? new Date().toISOString();
     const members = (group.members ?? []).map((member) => ({
       ...member,
       role: member.role ?? "",
@@ -265,7 +270,14 @@ function migrateGroups(persisted: unknown): Group[] {
     const spaces =
       Array.isArray(group.spaces) && group.spaces.length > 0
         ? group.spaces
-        : [createGroupSpace("Geral")];
+        : [
+            {
+              id: `${group.id}:space:geral`,
+              name: "Geral",
+              icon: DEFAULT_SPACE_ICON,
+              createdAt,
+            },
+          ];
     const firstSpaceId = spaces[0]?.id ?? null;
     const pages = (group.pages ?? []).map((page) => ({
       ...page,
@@ -274,8 +286,8 @@ function migrateGroups(persisted: unknown): Group[] {
       icon: page.icon ?? "📄",
       content: page.content ?? "",
       favorite: page.favorite ?? false,
-      createdAt: page.createdAt ?? new Date().toISOString(),
-      updatedAt: page.updatedAt ?? page.createdAt ?? new Date().toISOString(),
+      createdAt: page.createdAt ?? createdAt,
+      updatedAt: page.updatedAt ?? page.createdAt ?? createdAt,
     }));
     return [
       {
@@ -299,9 +311,19 @@ function migrateGroups(persisted: unknown): Group[] {
         people:
           Array.isArray(group.people) && group.people.length > 0
             ? group.people
-            : [createOwnerPerson()],
+            : [
+                {
+                  id: `${group.id}:person:owner`,
+                  name: "Você",
+                  handle: "voce",
+                  accent: "slate" as const,
+                  role: "Proprietário",
+                  isOwner: true,
+                  joinedAt: createdAt,
+                },
+              ],
         bindings: Array.isArray(group.bindings) ? group.bindings : [],
-        createdAt: group.createdAt ?? new Date().toISOString(),
+        createdAt,
       },
     ];
   });
@@ -918,12 +940,19 @@ export const useGroupsStore = create<GroupsState>()(
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
-      migrate: (persisted, version) => {
-        if (version < 4) {
-          const state = persisted as { groups?: unknown } | null;
-          return { ...state, groups: migrateGroups(state?.groups) } as unknown as GroupsState;
-        }
-        return persisted as GroupsState;
+      migrate: (persisted) => {
+        const state = persisted as { groups?: unknown } | null;
+        return { ...state, groups: normalizeGroups(state?.groups) } as unknown as GroupsState;
+      },
+      // Older builds, and HMR reloads that bumped the version without re-running `migrate`,
+      // can leave groups without spaces/pages/people. Normalize on every rehydration.
+      merge: (persisted, current) => {
+        const state = persisted as { groups?: unknown } | null;
+        return {
+          ...current,
+          ...(persisted as Partial<GroupsState> | null),
+          groups: normalizeGroups(state?.groups),
+        };
       },
       partialize: (state) => ({
         groups: state.groups,

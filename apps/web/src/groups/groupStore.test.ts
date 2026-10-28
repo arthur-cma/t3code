@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { channelMessages, useGroupsStore } from "./groupStore";
+import { channelMessages, normalizeGroups, useGroupsStore } from "./groupStore";
 import { DEFAULT_GROUP_SETTINGS } from "./types";
 
 const store = () => useGroupsStore.getState();
@@ -214,6 +214,69 @@ describe("groupStore", () => {
     expect(store().groups[0]?.channels.map((channel) => channel.name)).toEqual(["geral", "design"]);
     expect(store().messages.channel_novo).toHaveLength(1);
     expect(store().activeGroupId).toBe(groupId);
+  });
+
+  it("repairs groups persisted before spaces, pages and people existed", () => {
+    const legacy = {
+      id: "group_antigo",
+      name: "Estúdio",
+      description: "Time",
+      accent: "emerald",
+      replyMode: "mentions",
+      runtimeMode: "full-access",
+      projectRef: null,
+      channels: [{ id: "channel_1", name: "geral", topic: "" }],
+      members: [
+        {
+          id: "member_1",
+          name: "Ana",
+          handle: "ana",
+          instanceId: "codex",
+          driverKind: "codex",
+          model: "gpt-5",
+          autoRespond: true,
+        },
+      ],
+      meetings: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const [group] = normalizeGroups([legacy]);
+    expect(group?.channels[0]).toMatchObject({ kind: "text", memberId: null });
+    expect(group?.members[0]).toMatchObject({ role: "", reportsTo: null, personId: null });
+    expect(group?.spaces).toHaveLength(1);
+    expect(group?.pages).toEqual([]);
+    expect(group?.people[0]).toMatchObject({ isOwner: true, handle: "voce" });
+    expect(group?.bindings).toEqual([]);
+
+    // Deterministic ids keep repeated repairs from duplicating records.
+    const [again] = normalizeGroups([legacy]);
+    expect(again?.spaces[0]?.id).toBe(group?.spaces[0]?.id);
+    expect(again?.people[0]?.id).toBe(group?.people[0]?.id);
+
+    expect(normalizeGroups(null)).toEqual([]);
+    expect(normalizeGroups([{ name: "sem id" }])).toEqual([]);
+  });
+
+  it("normalizes persisted groups on every rehydration", () => {
+    const options = useGroupsStore.persist.getOptions();
+    const merged = options.merge?.(
+      {
+        groups: [
+          {
+            id: "group_antigo",
+            name: "Estúdio",
+            channels: [{ id: "channel_1", name: "geral", topic: "" }],
+          },
+        ],
+        messages: {},
+      },
+      useGroupsStore.getState(),
+    );
+
+    expect(merged?.groups[0]?.pages).toEqual([]);
+    expect(merged?.groups[0]?.spaces).toHaveLength(1);
+    expect(merged?.groups[0]?.people).toHaveLength(1);
   });
 
   it("updates settings and resets everything", () => {
