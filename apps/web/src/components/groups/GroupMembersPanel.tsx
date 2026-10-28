@@ -1,4 +1,4 @@
-import { BotIcon, MessageSquareIcon, UserIcon } from "lucide-react";
+import { BotIcon, SettingsIcon, UserIcon } from "lucide-react";
 
 import { groupInitials } from "../../groups/groupLogic";
 import {
@@ -43,16 +43,18 @@ function MemberRow({
   person,
   bindingCount,
   onOpenDm,
+  onConfigure,
 }: {
   member: GroupMember;
   person: GroupPerson | null;
   bindingCount: number;
   onOpenDm: (member: GroupMember) => void;
+  onConfigure: (member: GroupMember) => void;
 }) {
   return (
-    <li>
+    <li className="group flex items-center gap-1 rounded-md pr-1 hover:bg-accent/60">
       <button
-        className="group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left outline-hidden hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => onOpenDm(member)}
         type="button"
       >
@@ -87,7 +89,14 @@ function MemberRow({
             </span>
           ) : null}
         </span>
-        <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+      </button>
+      <button
+        aria-label={`Configurar ${member.name}`}
+        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-hidden transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100"
+        onClick={() => onConfigure(member)}
+        type="button"
+      >
+        <SettingsIcon className="size-3.5" />
       </button>
     </li>
   );
@@ -96,10 +105,12 @@ function MemberRow({
 export function GroupMembersPanel({
   group,
   onOpenDm,
+  onConfigure,
   className,
 }: {
   group: Group;
   onOpenDm: (member: GroupMember) => void;
+  onConfigure: (member: GroupMember) => void;
   className?: string;
 }) {
   return (
@@ -152,6 +163,7 @@ export function GroupMembersPanel({
                 }
                 key={member.id}
                 member={member}
+                onConfigure={onConfigure}
                 onOpenDm={onOpenDm}
                 person={
                   member.personId === null
@@ -164,7 +176,7 @@ export function GroupMembersPanel({
         )}
       </div>
       <p className="border-t border-border/60 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
-        Clique em um agente para abrir uma conversa direta.
+        Clique em um agente para abrir a conversa direta ou use a engrenagem para configurar.
       </p>
     </aside>
   );

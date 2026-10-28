@@ -30,6 +30,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "..
 import { SidebarInset } from "../ui/sidebar";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
+import { GroupAgentConfigDialog } from "./GroupAgentConfigDialog";
 import { GroupAvatar } from "./GroupAvatar";
 import { GroupCollaborationDialog } from "./GroupCollaborationDialog";
 import { GroupMeetingRoom } from "./GroupMeetingRoom";
@@ -58,6 +59,7 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
   const [draft, setDraft] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collabOpen, setCollabOpen] = useState(false);
+  const [configMemberId, setConfigMemberId] = useState<string | null>(null);
   const [membersOpen, setMembersOpen] = useState(true);
   const [orgOpen, setOrgOpen] = useState(false);
   const [meetingOpen, setMeetingOpen] = useState(false);
@@ -183,6 +185,16 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
         >
           <CalendarClockIcon />
         </Button>
+        {dmMember === null ? null : (
+          <Button
+            aria-label={`Configurar ${dmMember.name}`}
+            onClick={() => setConfigMemberId(dmMember.id)}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <SettingsIcon />
+          </Button>
+        )}
         <Button
           aria-label="Organograma do grupo"
           onClick={() => setOrgOpen(true)}
@@ -364,12 +376,21 @@ export function GroupChannelView({ group, channel }: { group: Group; channel: Gr
           <GroupMembersPanel
             className="hidden lg:flex"
             group={group}
+            onConfigure={(member) => setConfigMemberId(member.id)}
             onOpenDm={(member) => openDirectMessage(member.id)}
           />
         ) : null}
       </div>
 
       <GroupSettingsDialog group={group} onOpenChange={setSettingsOpen} open={settingsOpen} />
+      <GroupAgentConfigDialog
+        group={group}
+        member={group.members.find((member) => member.id === configMemberId) ?? null}
+        onOpenChange={(open) => {
+          if (!open) setConfigMemberId(null);
+        }}
+        open={configMemberId !== null}
+      />
       <GroupCollaborationDialog
         group={group}
         onOpenChange={setCollabOpen}
