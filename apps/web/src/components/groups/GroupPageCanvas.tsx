@@ -24,6 +24,7 @@ import type {
 } from "../../groups/types";
 import { GROUP_ACCENTS, GROUP_CANVAS_NODE_CLASSES } from "../../groups/types";
 import { cn, randomUUID } from "../../lib/utils";
+import { Button } from "../ui/button";
 
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 2.5;
@@ -42,6 +43,15 @@ const KIND_LABELS: Record<GroupCanvasNodeKind, string> = {
   note: "Nota",
   shape: "Forma",
   text: "Texto",
+};
+
+const COLOR_LABELS: Record<GroupAccent, string> = {
+  violet: "violeta",
+  emerald: "esmeralda",
+  amber: "âmbar",
+  sky: "azul",
+  rose: "rosa",
+  slate: "cinza",
 };
 
 interface ViewState {
@@ -73,36 +83,6 @@ type DragState =
 
 function clampZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
-}
-
-function ToolbarButton({
-  label,
-  active,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      aria-label={label}
-      aria-pressed={active ?? false}
-      className={cn(
-        "flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-muted-foreground outline-hidden transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-3.5",
-        active === true && "bg-accent text-foreground",
-      )}
-      disabled={disabled ?? false}
-      onClick={onClick}
-      type="button"
-    >
-      {children}
-    </button>
-  );
 }
 
 export function GroupPageCanvas({
@@ -284,64 +264,84 @@ export function GroupPageCanvas({
   const selected = nodes.find((node) => node.id === selectedId) ?? null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-0.5 border-b border-border/60 px-2 py-1">
-        <ToolbarButton label="Adicionar nota" onClick={() => addNode("note")}>
-          <StickyNoteIcon />
-        </ToolbarButton>
-        <ToolbarButton label="Adicionar forma" onClick={() => addNode("shape")}>
-          <SquareIcon />
-        </ToolbarButton>
-        <ToolbarButton label="Adicionar texto" onClick={() => addNode("text")}>
-          <TypeIcon />
-        </ToolbarButton>
-        <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-        <ToolbarButton
-          disabled={selected === null}
-          label="Apagar selecionado"
-          onClick={() => {
-            if (selected !== null) removeNode(selected.id);
-          }}
-        >
-          <Trash2Icon />
-        </ToolbarButton>
-        {selected === null ? null : (
-          <div className="ml-1 flex items-center gap-1">
-            {GROUP_ACCENTS.map((color) => (
-              <button
-                aria-label={`Cor ${color}`}
-                aria-pressed={selected.color === color}
-                className={cn(
-                  "size-4 rounded-full border outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                  GROUP_CANVAS_NODE_CLASSES[color],
-                  selected.color === color ? "ring-2 ring-ring" : "border-border/60",
-                )}
-                key={color}
-                onClick={() => {
-                  updateNode(selected.id, { color });
-                  onChange({ nodes: nodesRef.current });
-                }}
-                type="button"
-              />
-            ))}
-          </div>
-        )}
-        <div className="ml-auto flex items-center gap-0.5">
-          <span className="px-1 text-2xs tabular-nums text-muted-foreground">
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-start justify-between gap-2 p-3">
+        <div className="pointer-events-auto flex flex-wrap items-center gap-0.5 rounded-xl border border-border/60 bg-background/95 p-1 shadow-lg backdrop-blur">
+          <Button onClick={() => addNode("note")} size="sm" variant="ghost">
+            <StickyNoteIcon />
+            Nota
+          </Button>
+          <Button onClick={() => addNode("shape")} size="sm" variant="ghost">
+            <SquareIcon />
+            Forma
+          </Button>
+          <Button onClick={() => addNode("text")} size="sm" variant="ghost">
+            <TypeIcon />
+            Texto
+          </Button>
+          <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+          <Button
+            aria-label="Apagar selecionado"
+            disabled={selected === null}
+            onClick={() => {
+              if (selected !== null) removeNode(selected.id);
+            }}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <Trash2Icon />
+          </Button>
+          {selected === null ? null : (
+            <div className="ml-1 flex items-center gap-1 pr-1">
+              {GROUP_ACCENTS.map((color) => (
+                <button
+                  aria-label={`Cor ${COLOR_LABELS[color]}`}
+                  aria-pressed={selected.color === color}
+                  className={cn(
+                    "size-4 rounded-full border outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    GROUP_CANVAS_NODE_CLASSES[color],
+                    selected.color === color ? "ring-2 ring-ring" : "border-border/60",
+                  )}
+                  key={color}
+                  onClick={() => {
+                    updateNode(selected.id, { color });
+                    onChange({ nodes: nodesRef.current });
+                  }}
+                  type="button"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-border/60 bg-background/95 p-1 shadow-lg backdrop-blur">
+          <Button
+            aria-label="Diminuir zoom"
+            onClick={() => zoomBy(0.85)}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <MinusIcon />
+          </Button>
+          <span className="min-w-10 text-center text-xs tabular-nums text-muted-foreground">
             {Math.round(view.zoom * 100)}%
           </span>
-          <ToolbarButton label="Diminuir zoom" onClick={() => zoomBy(0.85)}>
-            <MinusIcon />
-          </ToolbarButton>
-          <ToolbarButton label="Aumentar zoom" onClick={() => zoomBy(1.18)}>
+          <Button
+            aria-label="Aumentar zoom"
+            onClick={() => zoomBy(1.18)}
+            size="icon-sm"
+            variant="ghost"
+          >
             <PlusIcon />
-          </ToolbarButton>
-          <ToolbarButton
-            label="Centralizar quadro"
+          </Button>
+          <Button
+            aria-label="Centralizar quadro"
             onClick={() => updateView({ x: 0, y: 0, zoom: 1 })}
+            size="icon-sm"
+            variant="ghost"
           >
             <MousePointer2Icon />
-          </ToolbarButton>
+          </Button>
         </div>
       </div>
 
@@ -430,13 +430,7 @@ export function GroupPageCanvas({
                       }
                     }}
                     onPointerDown={(event) => event.stopPropagation()}
-                    placeholder={
-                      node.kind === "note"
-                        ? "Escreva uma nota"
-                        : node.kind === "shape"
-                          ? "Rótulo da forma"
-                          : "Texto"
-                    }
+                    placeholder={KIND_LABELS[node.kind]}
                     value={node.text}
                   />
                 ) : (
@@ -447,13 +441,7 @@ export function GroupPageCanvas({
                       node.text.length === 0 && "text-current/40",
                     )}
                   >
-                    {node.text.length === 0
-                      ? node.kind === "note"
-                        ? "Clique duas vezes para escrever"
-                        : node.kind === "shape"
-                          ? "Forma"
-                          : "Texto"
-                      : node.text}
+                    {node.text.length === 0 ? KIND_LABELS[node.kind] : node.text}
                   </p>
                 )}
               </div>
@@ -462,12 +450,20 @@ export function GroupPageCanvas({
         </div>
 
         {nodes.length === 0 ? (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
-            <p className="text-sm font-medium text-foreground">Quadro vazio</p>
-            <p className="max-w-64 text-xs text-muted-foreground">
-              Clique duas vezes para criar uma nota, ou use a barra acima para adicionar formas e
-              textos.
-            </p>
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div
+              className="pointer-events-auto flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-background/85 p-6 text-center shadow-sm"
+              onDoubleClick={(event) => {
+                event.stopPropagation();
+                addNode("note");
+              }}
+            >
+              <p className="text-sm font-medium text-foreground">Quadro vazio</p>
+              <Button onClick={() => addNode("note")} size="sm">
+                <StickyNoteIcon />
+                Criar nota
+              </Button>
+            </div>
           </div>
         ) : null}
       </div>

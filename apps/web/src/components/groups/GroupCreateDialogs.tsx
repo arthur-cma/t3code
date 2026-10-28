@@ -218,17 +218,19 @@ function PageDialogBody({
   group,
   defaultSpaceId,
   defaultParentId,
+  defaultTemplateId,
   onOpenChange,
   onCreated,
 }: {
   group: Group;
   defaultSpaceId?: string | undefined;
   defaultParentId?: string | null | undefined;
+  defaultTemplateId?: string | undefined;
   onOpenChange: (open: boolean) => void;
   onCreated: (pageId: string) => void;
 }) {
   const addPage = useGroupsStore((store) => store.addPage);
-  const [templateId, setTemplateId] = useState("blank");
+  const [templateId, setTemplateId] = useState(defaultTemplateId ?? "blank");
   const [title, setTitle] = useState("");
   const [spaceId, setSpaceId] = useState(defaultSpaceId ?? group.spaces[0]?.id ?? "");
   const [parentId, setParentId] = useState(defaultParentId ?? "none");
@@ -379,6 +381,7 @@ export function CreatePageDialog({
   open,
   defaultSpaceId,
   defaultParentId,
+  defaultTemplateId,
   onOpenChange,
   onCreated,
 }: {
@@ -386,6 +389,7 @@ export function CreatePageDialog({
   open: boolean;
   defaultSpaceId?: string | undefined;
   defaultParentId?: string | null | undefined;
+  defaultTemplateId?: string | undefined;
   onOpenChange: (open: boolean) => void;
   onCreated: (pageId: string) => void;
 }) {
@@ -395,6 +399,7 @@ export function CreatePageDialog({
         <PageDialogBody
           defaultParentId={defaultParentId}
           defaultSpaceId={defaultSpaceId}
+          defaultTemplateId={defaultTemplateId}
           group={group}
           onCreated={onCreated}
           onOpenChange={onOpenChange}

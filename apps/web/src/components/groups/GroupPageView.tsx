@@ -10,8 +10,8 @@ import {
   LinkIcon,
   MessageSquareIcon,
   NetworkIcon,
+  PlusIcon,
   StarIcon,
-  TagIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
@@ -31,6 +31,7 @@ import { copyPageLink, exportPageMarkdown } from "../../groups/pageActions";
 import { normalizePageTags, useGroupsStore } from "../../groups/groupStore";
 import type { Group, GroupPage, GroupPageCoverId } from "../../groups/types";
 import { GROUP_PAGE_COVER_CLASSES } from "../../groups/types";
+import { isElectron } from "../../env";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -45,11 +46,47 @@ import { GroupPageEditor } from "./GroupPageEditor";
 import { GroupPageGraph } from "./GroupPageGraph";
 import { GroupPageTrashDialog } from "./GroupPageTrashDialog";
 
+function ModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: GroupPage["mode"];
+  onChange: (mode: GroupPage["mode"]) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5">
+      {(
+        [
+          { id: "document", label: "Documento", icon: <FileTextIcon /> },
+          { id: "canvas", label: "Quadro", icon: <LayoutGridIcon /> },
+        ] as const
+      ).map((item) => (
+        <button
+          aria-label={item.label}
+          aria-pressed={mode === item.id}
+          className={cn(
+            "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-3.5",
+            mode === item.id
+              ? "bg-background text-foreground shadow-xs"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          key={item.id}
+          onClick={() => onChange(item.id)}
+          type="button"
+        >
+          {item.icon}
+          <span className="max-sm:hidden">{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function PageTitleInput({ page, onSave }: { page: GroupPage; onSave: (title: string) => void }) {
   return (
     <input
       aria-label="Título da página"
-      className="w-full rounded-md bg-transparent text-2xl font-semibold text-foreground outline-none placeholder:text-muted-foreground/60 hover:bg-muted/40 focus-visible:bg-muted/40"
+      className="w-full rounded-md bg-transparent text-3xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50 hover:bg-muted/30 focus-visible:bg-muted/30"
       onChange={(event) => onSave(event.target.value)}
       placeholder="Sem título"
       value={page.title}
@@ -66,10 +103,10 @@ function TagRow({ page, onSave }: { page: GroupPage; onSave: (tags: string[]) =>
     onSave(next);
   };
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1.5">
       {page.tags.map((tag) => (
         <span
-          className="flex items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5 text-2xs text-muted-foreground"
+          className="flex items-center gap-1 rounded-md bg-muted/60 px-2 py-1 text-xs text-muted-foreground"
           key={tag}
         >
           {tag}
@@ -84,13 +121,13 @@ function TagRow({ page, onSave }: { page: GroupPage; onSave: (tags: string[]) =>
         </span>
       ))}
       <form
-        className="flex items-center"
         onSubmit={(event) => {
           event.preventDefault();
           submit();
         }}
       >
-        <span className="w-24 shrink-0">
+        <span className="flex w-28 items-center gap-1">
+          <PlusIcon className="size-3 shrink-0 text-muted-foreground" />
           <Input
             aria-label="Adicionar tag"
             onChange={(event) => setDraft(event.target.value)}
@@ -100,7 +137,7 @@ function TagRow({ page, onSave }: { page: GroupPage; onSave: (tags: string[]) =>
                 submit();
               }
             }}
-            placeholder="+ tag"
+            placeholder="Tag"
             size="sm"
             value={draft}
           />
@@ -119,24 +156,22 @@ function HeadingSection({
 }) {
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-l border-border/60 bg-sidebar/40 xl:flex">
-      <div className="border-b border-border/60 px-3 py-2">
-        <h2 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+      <div className="border-b border-border/60 px-4 py-3">
+        <h2 className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
           Nesta página
         </h2>
       </div>
-      <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto px-2 py-3">
         {headings.length === 0 ? (
-          <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-            Adicione títulos para montar o sumário.
-          </p>
+          <p className="px-2 text-xs text-muted-foreground">Sem títulos</p>
         ) : (
           <ul className="flex flex-col gap-0.5">
             {headings.map((heading) => (
               <li key={heading.id}>
                 <button
-                  className="w-full truncate rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground outline-hidden hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  className="w-full truncate rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground outline-hidden hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   onClick={() => onJump(heading)}
-                  style={{ paddingLeft: `${6 + (heading.level - 1) * 10}px` }}
+                  style={{ paddingLeft: `${8 + (heading.level - 1) * 10}px` }}
                   type="button"
                 >
                   {heading.text}
@@ -146,15 +181,25 @@ function HeadingSection({
           </ul>
         )}
       </div>
-      <p className="border-t border-border/60 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
-        Digite / para blocos · [[ para linkar
-      </p>
     </aside>
   );
 }
 
-function InfoChip({ children }: { children: ReactNode }) {
-  return <span className="truncate">{children}</span>;
+function ConnectionList({
+  title,
+  empty,
+  children,
+}: {
+  title: string;
+  empty: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">{title}</p>
+      {empty ? <p className="text-xs text-muted-foreground">Nenhuma</p> : children}
+    </div>
+  );
 }
 
 export function GroupPageView({
@@ -226,12 +271,13 @@ export function GroupPageView({
     page.cover === "" ? null : (
       <div
         className={cn(
-          "relative h-36 w-full border-b border-border/60",
+          "relative h-44 w-full border-b border-border/60",
           GROUP_PAGE_COVER_CLASSES[page.cover],
         )}
       >
-        <div className="absolute right-3 bottom-3 flex items-center gap-1">
+        <div className="absolute right-4 bottom-4 flex items-center gap-1.5">
           <Button onClick={() => setCoverOpen(true)} size="xs" variant="outline">
+            <ImageIcon />
             Trocar capa
           </Button>
           <Button
@@ -247,29 +293,23 @@ export function GroupPageView({
     );
 
   const pageHeading = (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-start gap-2">
+    <div className="flex flex-col gap-4">
+      <div className="flex items-start gap-3">
         <input
           aria-label="Ícone da página"
-          className="mt-1 w-10 shrink-0 rounded-md bg-transparent text-center text-2xl outline-none hover:bg-muted/60 focus-visible:bg-muted/60"
+          className="mt-0.5 w-12 shrink-0 rounded-lg bg-transparent py-0.5 text-center text-3xl outline-none hover:bg-muted/50 focus-visible:bg-muted/50"
           maxLength={4}
           onChange={(event) => save({ icon: event.target.value })}
           value={page.icon}
         />
         <div className="min-w-0 flex-1">
           <PageTitleInput onSave={(title) => save({ title })} page={page} />
-          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-            <InfoChip>{words} palavra(s)</InfoChip>
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            <span className="truncate">{words} palavra(s)</span>
             <span aria-hidden>·</span>
-            <InfoChip>{isCanvas ? "Quadro" : "Documento"}</InfoChip>
-            <span aria-hidden>·</span>
-            <InfoChip>atualizada em {new Date(page.updatedAt).toLocaleString("pt-BR")}</InfoChip>
-            {page.dailyKey === null ? null : (
-              <>
-                <span aria-hidden>·</span>
-                <InfoChip>diário</InfoChip>
-              </>
-            )}
+            <span className="truncate">
+              atualizada em {new Date(page.updatedAt).toLocaleString("pt-BR")}
+            </span>
           </p>
         </div>
       </div>
@@ -279,54 +319,33 @@ export function GroupPageView({
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden" role="main">
-      <WorkspacePageHeader className="gap-2 border-b border-border/60">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
-          <span aria-hidden className="text-sm leading-none">
+      <WorkspacePageHeader className="gap-3 border-b border-border/60" electron={isElectron}>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span aria-hidden className="shrink-0 text-base leading-none">
             {space?.icon ?? "📁"}
           </span>
-          <span className="truncate">{space?.name ?? "Espaço"}</span>
-          {crumbs.map((crumb) => (
-            <span className="flex min-w-0 items-center gap-1.5" key={crumb.id}>
-              <span aria-hidden>/</span>
-              <button
-                className="max-w-40 truncate rounded-sm outline-hidden hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                onClick={() => onOpenPage(crumb.id)}
-                type="button"
-              >
-                {crumb.title}
-              </button>
-            </span>
-          ))}
-          <span aria-hidden>/</span>
-          <span className="max-w-48 truncate font-medium text-foreground">{page.title}</span>
+          <div className="flex min-w-0 flex-col">
+            <div className="flex min-w-0 items-center gap-1 text-2xs text-muted-foreground">
+              <span className="truncate">{space?.name ?? "Espaço"}</span>
+              {crumbs.map((crumb) => (
+                <span className="flex min-w-0 items-center gap-1" key={crumb.id}>
+                  <span aria-hidden>/</span>
+                  <button
+                    className="max-w-32 truncate rounded-sm outline-hidden hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    onClick={() => onOpenPage(crumb.id)}
+                    type="button"
+                  >
+                    {crumb.title}
+                  </button>
+                </span>
+              ))}
+            </div>
+            <span className="truncate text-sm font-semibold text-foreground">{page.title}</span>
+          </div>
         </div>
 
-        <Button
-          aria-label="Modo documento"
-          aria-pressed={!isCanvas}
-          onClick={() => save({ mode: "document" })}
-          size="icon-sm"
-          variant={isCanvas ? "ghost" : "secondary"}
-        >
-          <FileTextIcon />
-        </Button>
-        <Button
-          aria-label="Modo quadro"
-          aria-pressed={isCanvas}
-          onClick={() => save({ mode: "canvas" })}
-          size="icon-sm"
-          variant={isCanvas ? "secondary" : "ghost"}
-        >
-          <LayoutGridIcon />
-        </Button>
-        <Button
-          aria-label="Nova subpágina"
-          onClick={() => setSubpageOpen(true)}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <FilePlus2Icon />
-        </Button>
+        <ModeSwitch mode={page.mode} onChange={(mode) => save({ mode })} />
+
         <Button
           aria-label={page.favorite ? "Remover dos favoritos" : "Favoritar página"}
           aria-pressed={page.favorite}
@@ -336,29 +355,31 @@ export function GroupPageView({
         >
           <StarIcon className={cn(page.favorite && "fill-current text-warning")} />
         </Button>
-        <Button
-          aria-label="Grafo de páginas"
-          onClick={() => setGraphOpen(true)}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <NetworkIcon />
-        </Button>
+
         <Button
           aria-label="Discutir com agentes"
           onClick={() => setDiscussOpen(true)}
-          size="icon-sm"
-          variant="ghost"
+          size="sm"
+          variant="outline"
         >
           <MessageSquareIcon />
+          <span className="max-sm:hidden">Discutir</span>
         </Button>
+
         <Menu>
-          <MenuTrigger
-            render={<Button aria-label="Mais ações da página" size="icon-sm" variant="ghost" />}
-          >
+          <MenuTrigger render={<Button size="xs" variant="ghost" />}>
             <EllipsisIcon />
+            Mais
           </MenuTrigger>
           <MenuPopup align="end">
+            <MenuItem onClick={() => setSubpageOpen(true)}>
+              <FilePlus2Icon />
+              Nova subpágina
+            </MenuItem>
+            <MenuItem onClick={() => setGraphOpen(true)}>
+              <NetworkIcon />
+              Grafo de páginas
+            </MenuItem>
             <MenuItem onClick={() => setCoverOpen(true)}>
               <ImageIcon />
               {page.cover === "" ? "Adicionar capa" : "Trocar capa"}
@@ -396,7 +417,7 @@ export function GroupPageView({
       {isCanvas ? (
         <>
           {coverStrip}
-          <div className="mx-auto w-full max-w-3xl shrink-0 px-5 pt-4 pb-3 sm:px-8">
+          <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pt-6 pb-4 sm:px-10">
             {pageHeading}
           </div>
           <GroupPageCanvas
@@ -409,7 +430,7 @@ export function GroupPageView({
         <div className="flex min-h-0 flex-1">
           <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
             {coverStrip}
-            <article className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-5 pt-6 pb-10 sm:px-8">
+            <article className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-6 pt-9 pb-14 sm:px-10">
               {pageHeading}
 
               <div ref={editorWrapRef}>
@@ -420,88 +441,58 @@ export function GroupPageView({
                     save({ content: markdown });
                   }}
                   onOpenPageLink={openLink}
-                  onSwitchToCanvas={() => save({ mode: "canvas" })}
                   value={page.content}
                 />
               </div>
 
-              <section className="flex flex-col gap-2 border-t border-border/60 pt-4">
-                <h2 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  <LinkIcon className="size-3" />
-                  Conexões
-                </h2>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1">
-                    <p className="text-2xs text-muted-foreground">
-                      Links desta página ({outgoing.length})
-                    </p>
-                    {outgoing.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        Nenhum link. Use [[Título]] no conteúdo.
-                      </p>
-                    ) : (
-                      <ul className="flex flex-col gap-0.5">
-                        {outgoing.map((link) => (
-                          <li key={link.title}>
-                            <button
-                              className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground outline-hidden hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                              onClick={() => openLink(link.title)}
-                              type="button"
-                            >
-                              <span aria-hidden>{link.page?.icon ?? "➕"}</span>
-                              <span className="min-w-0 flex-1 truncate">{link.title}</span>
-                              {link.page === null ? (
-                                <span className="shrink-0 text-2xs text-muted-foreground">
-                                  criar
-                                </span>
-                              ) : null}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <p className="text-2xs text-muted-foreground">Backlinks ({backlinks.length})</p>
-                    {backlinks.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        Nenhuma página menciona esta ainda.
-                      </p>
-                    ) : (
-                      <ul className="flex flex-col gap-0.5">
-                        {backlinks.map((source) => (
-                          <li key={source.id}>
-                            <button
-                              className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground outline-hidden hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                              onClick={() => onOpenPage(source.id)}
-                              type="button"
-                            >
-                              <span aria-hidden>{source.icon}</span>
-                              <span className="min-w-0 flex-1 truncate">{source.title}</span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+              <details className="group rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 text-xs font-medium text-foreground outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                  <span className="flex items-center gap-1.5">
+                    <LinkIcon className="size-3.5 text-muted-foreground" />
+                    Conexões
+                  </span>
+                  <span className="text-2xs text-muted-foreground">
+                    {outgoing.length} link(s) · {backlinks.length} backlink(s)
+                  </span>
+                </summary>
+                <div className="mt-4 grid gap-6 sm:grid-cols-2">
+                  <ConnectionList empty={outgoing.length === 0} title="Links desta página">
+                    <ul className="flex flex-col gap-0.5">
+                      {outgoing.map((link) => (
+                        <li key={link.title}>
+                          <button
+                            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground outline-hidden hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                            onClick={() => openLink(link.title)}
+                            type="button"
+                          >
+                            <span aria-hidden>{link.page?.icon ?? "➕"}</span>
+                            <span className="min-w-0 flex-1 truncate">{link.title}</span>
+                            {link.page === null ? (
+                              <span className="shrink-0 text-2xs text-muted-foreground">criar</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </ConnectionList>
+                  <ConnectionList empty={backlinks.length === 0} title="Backlinks">
+                    <ul className="flex flex-col gap-0.5">
+                      {backlinks.map((source) => (
+                        <li key={source.id}>
+                          <button
+                            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground outline-hidden hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                            onClick={() => onOpenPage(source.id)}
+                            type="button"
+                          >
+                            <span aria-hidden>{source.icon}</span>
+                            <span className="min-w-0 flex-1 truncate">{source.title}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </ConnectionList>
                 </div>
-              </section>
-
-              <section className="flex flex-col gap-1 border-t border-border/60 pt-4">
-                <h2 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  <TagIcon className="size-3" />
-                  Tags
-                </h2>
-                {page.tags.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Use tags para agrupar páginas por assunto e encontrá-las na busca.
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    {page.tags.map((tag) => `#${tag}`).join(" · ")}
-                  </p>
-                )}
-              </section>
+              </details>
             </article>
           </div>
 

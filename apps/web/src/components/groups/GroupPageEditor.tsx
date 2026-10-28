@@ -6,11 +6,11 @@ import {
   Heading2Icon,
   Heading3Icon,
   ItalicIcon,
-  LayoutGridIcon,
   Link2Icon,
   ListIcon,
   ListOrderedIcon,
   MinusIcon,
+  PlusIcon,
   QuoteIcon,
   SquareCodeIcon,
   StrikethroughIcon,
@@ -172,24 +172,28 @@ function ToolbarButton({
   active,
   onClick,
   children,
+  showLabel = false,
 }: {
   label: string;
   active?: boolean;
   onClick: () => void;
   children: ReactNode;
+  showLabel?: boolean;
 }) {
   return (
     <button
       aria-label={label}
       aria-pressed={active ?? false}
       className={cn(
-        "flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-muted-foreground outline-hidden transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-3.5",
+        "flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-muted-foreground outline-hidden transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:size-4",
+        showLabel ? "text-xs font-medium" : "min-w-8",
         active === true && "bg-accent text-foreground",
       )}
       onClick={onClick}
       type="button"
     >
       {children}
+      {showLabel ? <span>{label}</span> : null}
     </button>
   );
 }
@@ -198,13 +202,11 @@ export function GroupPageEditor({
   value,
   onChange,
   onOpenPageLink,
-  onSwitchToCanvas,
   ariaLabel = "Conteúdo da página",
 }: {
   value: string;
   onChange: (markdown: string) => void;
   onOpenPageLink: (title: string) => void;
-  onSwitchToCanvas?: (() => void) | undefined;
   ariaLabel?: string | undefined;
 }) {
   const [isEmpty, setIsEmpty] = useState(() => value.trim().length === 0);
@@ -344,8 +346,8 @@ export function GroupPageEditor({
   ] as const;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-0.5 rounded-md border border-border/60 bg-muted/20 px-1 py-0.5">
+    <div className="flex flex-col gap-3">
+      <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-background/95 px-1.5 py-1.5 shadow-xs backdrop-blur">
         {toolbar.map((item) => (
           <ToolbarButton
             active={item.active}
@@ -356,7 +358,7 @@ export function GroupPageEditor({
             {item.icon}
           </ToolbarButton>
         ))}
-        <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+        <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
         <ToolbarButton
           active={editor?.isActive("heading", { level: 1 }) ?? false}
           label="Título 1"
@@ -371,6 +373,7 @@ export function GroupPageEditor({
         >
           H2
         </ToolbarButton>
+        <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
         <ToolbarButton
           active={editor?.isActive("bulletList") ?? false}
           label="Lista com marcadores"
@@ -406,31 +409,38 @@ export function GroupPageEditor({
         >
           <SquareCodeIcon />
         </ToolbarButton>
-        <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+        <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
         <ToolbarButton
-          label="Link para página"
+          label="Página"
           onClick={() => {
             if (editor === null) return;
             editor.chain().focus().insertContent("[[]]").run();
             editor.commands.setTextSelection(editor.state.selection.from - 2);
           }}
+          showLabel
         >
           <Link2Icon />
         </ToolbarButton>
-        {onSwitchToCanvas === undefined ? null : (
-          <ToolbarButton label="Abrir no quadro" onClick={onSwitchToCanvas}>
-            <LayoutGridIcon />
-          </ToolbarButton>
-        )}
-        <span className="ml-auto hidden pr-1.5 text-2xs text-muted-foreground sm:block">
-          Digite / para blocos
-        </span>
+        <ToolbarButton
+          label="Bloco"
+          onClick={() => {
+            if (editor === null) return;
+            editor
+              .chain()
+              .focus()
+              .insertContent({ type: "paragraph", content: [{ type: "text", text: "/" }] })
+              .run();
+          }}
+          showLabel
+        >
+          <PlusIcon />
+        </ToolbarButton>
       </div>
 
       <div className="relative">
         {isEmpty ? (
-          <p className="pointer-events-none absolute inset-x-0 top-0 text-sm text-muted-foreground/70">
-            Escreva algo ou digite / para inserir blocos.
+          <p className="pointer-events-none absolute inset-x-0 top-0 text-sm text-muted-foreground/60">
+            Comece a escrever
           </p>
         ) : null}
         <EditorContent editor={editor} />

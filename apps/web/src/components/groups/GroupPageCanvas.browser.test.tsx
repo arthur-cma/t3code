@@ -44,7 +44,7 @@ describe("GroupPageCanvas", () => {
     const onChange = vi.fn();
     await using screen = await render(<GroupPageCanvas onChange={onChange} page={PAGE} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Adicionar forma" }));
+    await userEvent.click(screen.getByRole("button", { name: "Forma" }));
 
     const saved = onChange.mock.lastCall?.[0] as { nodes: Array<{ kind: string }> } | undefined;
     expect(saved?.nodes[0]?.kind).toBe("shape");

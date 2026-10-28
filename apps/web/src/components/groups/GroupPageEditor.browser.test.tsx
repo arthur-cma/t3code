@@ -38,6 +38,18 @@ describe("GroupPageEditor", () => {
     expect(onChange).toHaveBeenLastCalledWith("# Bloco");
   });
 
+  it("opens the block menu from the toolbar button", async () => {
+    await using screen = await render(
+      <GroupPageEditor onChange={() => {}} onOpenPageLink={() => {}} value="" />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Bloco" }));
+
+    await expect
+      .element(page.getByRole("button", { name: /Lista de tarefas[\s\S]*Itens com caixa/ }))
+      .toBeVisible();
+  });
+
   it("opens a wikilink through the page callback", async () => {
     const onOpenPageLink = vi.fn();
     await using screen = await render(

@@ -60,10 +60,11 @@ function TrashDialogBody({
                   <Button
                     aria-label={`Restaurar ${page.title}`}
                     onClick={() => onRestore(page)}
-                    size="icon-xs"
-                    variant="ghost"
+                    size="xs"
+                    variant="outline"
                   >
                     <RotateCcwIcon />
+                    Restaurar
                   </Button>
                   <Button
                     aria-label={`Excluir ${page.title} definitivamente`}

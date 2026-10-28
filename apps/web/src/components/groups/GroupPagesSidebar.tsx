@@ -7,16 +7,17 @@ import {
   FilePlus2Icon,
   FileTextIcon,
   FolderPlusIcon,
-  PencilIcon,
+  LayoutGridIcon,
   PlusIcon,
   StarIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useState } from "react";
 
-import { dailyKeyFor, dailyPageTitle } from "../../groups/pageDoc";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { copyPageLink, exportPageMarkdown } from "../../groups/pageActions";
 import { buildPageTree, searchPages, type PageTreeNode } from "../../groups/pageLogic";
+import { dailyKeyFor } from "../../groups/pageDoc";
 import {
   dailyPages,
   favoritePages,
@@ -27,7 +28,6 @@ import {
 } from "../../groups/groupStore";
 import type { Group, GroupPage, GroupSpace } from "../../groups/types";
 import { cn } from "../../lib/utils";
-import { useNowMinute } from "../../hooks/useNowMinute";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
@@ -42,8 +42,19 @@ import { GroupPageTrashDialog } from "./GroupPageTrashDialog";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-2 pt-1 pb-1 text-2xs font-medium tracking-wide text-sidebar-muted-foreground">
+    <span className="text-2xs font-semibold tracking-wider text-sidebar-muted-foreground uppercase">
       {children}
+    </span>
+  );
+}
+
+function SectionHeader({ label, count }: { label: string; count?: number }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 px-2">
+      <SectionLabel>{label}</SectionLabel>
+      {count === undefined ? null : (
+        <span className="text-2xs tabular-nums text-sidebar-muted-foreground">{count}</span>
+      )}
     </div>
   );
 }
@@ -64,13 +75,19 @@ function PageRow({
       isActive={active}
       onClick={() => onOpenPage(page.id)}
       onContextMenu={(event) => onContextMenu(event, page)}
-      size="sm"
     >
-      <span aria-hidden className="shrink-0 text-xs leading-none">
+      <span aria-hidden className="w-4 shrink-0 text-center text-sm leading-none">
         {page.icon}
       </span>
       <span className="truncate">{page.title}</span>
-      {page.favorite ? <StarIcon className="ml-auto size-3 shrink-0 text-warning" /> : null}
+      {page.dailyKey !== null ? (
+        <span className="ml-auto shrink-0 text-2xs text-sidebar-muted-foreground">Diário</span>
+      ) : null}
+      {page.favorite ? (
+        <StarIcon
+          className={cn("size-3 shrink-0 text-warning", page.dailyKey === null && "ml-auto")}
+        />
+      ) : null}
     </SidebarMenuButton>
   );
 }
@@ -95,11 +112,11 @@ function TreeBranch({
       <div className="flex items-center">
         {hasChildren ? (
           <button
-            aria-label={expanded ? "Recolher subpáginas" : "Expandir subpáginas"}
             aria-expanded={expanded}
-            className="flex size-4 shrink-0 items-center justify-center rounded-sm text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            aria-label={expanded ? "Recolher subpáginas" : "Expandir subpáginas"}
+            className="flex size-5 shrink-0 items-center justify-center rounded-sm text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             onClick={() => setExpanded((value) => !value)}
-            style={{ marginLeft: `${2 + depth * 12}px` }}
+            style={{ marginLeft: `${depth * 12}px` }}
             type="button"
           >
             <ChevronRightIcon
@@ -107,11 +124,7 @@ function TreeBranch({
             />
           </button>
         ) : (
-          <span
-            aria-hidden
-            className="size-4 shrink-0"
-            style={{ marginLeft: `${2 + depth * 12}px` }}
-          />
+          <span aria-hidden className="size-5 shrink-0" style={{ marginLeft: `${depth * 12}px` }} />
         )}
         <div className="min-w-0 flex-1">
           <PageRow
@@ -139,6 +152,8 @@ function TreeBranch({
     </SidebarMenuItem>
   );
 }
+
+type PageDraft = { spaceId: string; parentId: string | null; templateId?: string };
 
 type RenameTarget =
   | { kind: "page"; id: string; value: string; label: string }
@@ -172,29 +187,34 @@ export function GroupPagesSidebar({
   const [query, setQuery] = useState("");
   const [trashOpen, setTrashOpen] = useState(false);
   const [spaceDialogOpen, setSpaceDialogOpen] = useState(false);
-  const [pageDraft, setPageDraft] = useState<{ spaceId: string; parentId: string | null } | null>(
-    null,
-  );
+  const [pageDraft, setPageDraft] = useState<PageDraft | null>(null);
+  const [collapsedSpaces, setCollapsedSpaces] = useState<Record<string, boolean>>({});
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<DeleteTarget | null>(null);
   const pageMenu = useGroupContextMenu<GroupPage>();
   const spaceMenu = useGroupContextMenu<GroupSpace>();
   const sectionMenu = useGroupContextMenu<null>();
 
+  const livePages = group.pages.filter((page) => page.deletedAt === null);
   const favorites = favoritePages(group);
-  const recents = recentPages(group, 5);
+  const recents = recentPages(group, 4);
   const results = query.trim().length > 0 ? searchPages(group.pages, query, 12) : [];
   const searching = query.trim().length > 0;
   const todayKey = dailyKeyFor(new Date(`${nowMinute}Z`));
-  const today = group.pages.find((page) => page.dailyKey === todayKey && page.deletedAt === null);
+  const today = livePages.find((page) => page.dailyKey === todayKey);
   const dailies = dailyPages(group)
     .filter((page) => page.dailyKey !== todayKey)
     .slice(0, 3);
   const trashCount = trashedPages(group).length;
+  const firstSpaceId = group.spaces[0]?.id ?? "";
 
   const openToday = () => {
     const pageId = ensureDailyPage(group.id);
     if (pageId !== null) onOpenPage(pageId);
+  };
+
+  const startPage = (draft: PageDraft) => {
+    setPageDraft(draft);
   };
 
   const pageItems = (page: GroupPage): GroupContextMenuItem[] => [
@@ -207,7 +227,7 @@ export function GroupPagesSidebar({
     {
       id: "rename",
       label: "Renomear página",
-      icon: <PencilIcon />,
+      icon: <FileTextIcon />,
       onSelect: () =>
         setRename({ kind: "page", id: page.id, value: page.title, label: "Título da página" }),
     },
@@ -215,7 +235,7 @@ export function GroupPagesSidebar({
       id: "subpage",
       label: "Nova subpágina",
       icon: <FilePlus2Icon />,
-      onSelect: () => setPageDraft({ spaceId: page.spaceId, parentId: page.id }),
+      onSelect: () => startPage({ spaceId: page.spaceId, parentId: page.id }),
     },
     {
       id: "favorite",
@@ -259,12 +279,18 @@ export function GroupPagesSidebar({
       id: "new-page",
       label: "Nova página",
       icon: <FilePlus2Icon />,
-      onSelect: () => setPageDraft({ spaceId: space.id, parentId: null }),
+      onSelect: () => startPage({ spaceId: space.id, parentId: null }),
+    },
+    {
+      id: "new-board",
+      label: "Novo quadro",
+      icon: <FilePlus2Icon />,
+      onSelect: () => startPage({ spaceId: space.id, parentId: null, templateId: "board" }),
     },
     {
       id: "rename",
       label: "Renomear espaço",
-      icon: <PencilIcon />,
+      icon: <FileTextIcon />,
       onSelect: () =>
         setRename({ kind: "space", id: space.id, value: space.name, label: "Nome do espaço" }),
     },
@@ -310,195 +336,251 @@ export function GroupPagesSidebar({
   };
 
   return (
-    <div className="flex flex-col">
-      <div
-        className="flex items-center justify-between pr-1 pl-2"
-        onContextMenu={(event) => sectionMenu.openMenu(event, null)}
-      >
-        <SectionLabel>Espaço</SectionLabel>
+    <div className="flex flex-col gap-5 pb-2">
+      <div className="flex flex-col gap-2 px-2">
+        <SectionHeader count={livePages.length} label="Páginas" />
         <Button
-          aria-label="Novo espaço"
-          onClick={() => setSpaceDialogOpen(true)}
-          size="icon-xs"
-          variant="ghost"
+          className="w-full justify-start"
+          onClick={() => startPage({ spaceId: firstSpaceId, parentId: null })}
+          size="sm"
+          variant="outline"
         >
           <PlusIcon />
+          Nova página
         </Button>
+        <span className="w-full">
+          <Input
+            aria-label="Buscar páginas e tags"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar páginas e tags"
+            size="sm"
+            value={query}
+          />
+        </span>
       </div>
-
-      <div className="px-2 pb-2">
-        <Input
-          aria-label="Buscar páginas"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Buscar páginas"
-          size="sm"
-          value={query}
-        />
-      </div>
-
-      {searching ? null : (
-        <>
-          <div className="flex items-center justify-between pr-1 pl-2">
-            <SectionLabel>Diário</SectionLabel>
-            <Button
-              aria-label="Abrir diário de hoje"
-              onClick={openToday}
-              size="icon-xs"
-              variant="ghost"
-            >
-              <PlusIcon />
-            </Button>
-          </div>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={today?.id === activePageId}
-                onClick={openToday}
-                size="sm"
-              >
-                <CalendarDaysIcon />
-                <span className="truncate">
-                  {today?.title ?? `Hoje · ${dailyPageTitle(todayKey)}`}
-                </span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            {dailies.map((page) => (
-              <SidebarMenuItem key={page.id}>
-                <PageRow
-                  active={page.id === activePageId}
-                  onContextMenu={pageMenu.openMenu}
-                  onOpenPage={onOpenPage}
-                  page={page}
-                />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </>
-      )}
 
       {searching ? (
-        <SidebarMenu>
-          {results.length === 0 ? (
-            <p className="px-2 pb-1 text-2xs leading-relaxed text-sidebar-muted-foreground">
-              Nenhuma página encontrada.
-            </p>
-          ) : (
-            results.map((page) => (
-              <SidebarMenuItem key={page.id}>
-                <PageRow
-                  active={page.id === activePageId}
-                  onContextMenu={pageMenu.openMenu}
-                  onOpenPage={onOpenPage}
-                  page={page}
-                />
-              </SidebarMenuItem>
-            ))
-          )}
-        </SidebarMenu>
-      ) : null}
-
-      {searching
-        ? null
-        : group.spaces.map((space) => {
-            const tree = buildPageTree(group.pages, space.id);
-            const spacePages = group.pages.filter((page) => page.spaceId === space.id).length;
-            return (
-              <div className="flex flex-col gap-0.5 pb-1" key={space.id}>
-                <div
-                  className="flex items-center gap-1 pr-1 pl-2"
-                  onContextMenu={(event) => spaceMenu.openMenu(event, space)}
+        <div className="flex flex-col gap-1 px-2">
+          <SectionHeader count={results.length} label="Resultados" />
+          <SidebarMenu>
+            {results.length === 0 ? (
+              <p className="px-1 py-1 text-xs leading-relaxed text-sidebar-muted-foreground">
+                Nenhuma página encontrada para “{query.trim()}”.
+              </p>
+            ) : (
+              results.map((page) => (
+                <SidebarMenuItem key={page.id}>
+                  <PageRow
+                    active={page.id === activePageId}
+                    onContextMenu={pageMenu.openMenu}
+                    onOpenPage={onOpenPage}
+                    page={page}
+                  />
+                </SidebarMenuItem>
+              ))
+            )}
+          </SidebarMenu>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-1 px-2">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={today?.id === activePageId}
+                  onClick={openToday}
+                  onContextMenu={
+                    today === undefined ? undefined : (event) => pageMenu.openMenu(event, today)
+                  }
                 >
-                  <span aria-hidden className="text-xs leading-none">
-                    {space.icon}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-sidebar-foreground">
-                    {space.name}
-                  </span>
-                  <span className="text-2xs text-sidebar-muted-foreground">{spacePages}</span>
-                  <Button
-                    aria-label={`Nova página em ${space.name}`}
-                    onClick={() => setPageDraft({ spaceId: space.id, parentId: null })}
-                    size="icon-xs"
-                    variant="ghost"
-                  >
-                    <PlusIcon />
-                  </Button>
-                </div>
-                {tree.length === 0 ? (
-                  <p className="px-2 pb-1 pl-6 text-2xs leading-relaxed text-sidebar-muted-foreground">
-                    Nenhuma página ainda.
-                  </p>
-                ) : (
-                  <SidebarMenu>
-                    {tree.map((node) => (
-                      <TreeBranch
-                        activePageId={activePageId}
-                        depth={0}
-                        key={node.page.id}
-                        node={node}
-                        onOpenPage={onOpenPage}
-                        onPageContextMenu={pageMenu.openMenu}
-                      />
-                    ))}
-                  </SidebarMenu>
-                )}
-              </div>
-            );
-          })}
-
-      {!searching && favorites.length > 0 ? (
-        <>
-          <SectionLabel>Favoritos</SectionLabel>
-          <SidebarMenu>
-            {favorites.map((page) => (
-              <SidebarMenuItem key={page.id}>
-                <PageRow
-                  active={page.id === activePageId}
-                  onContextMenu={pageMenu.openMenu}
-                  onOpenPage={onOpenPage}
-                  page={page}
-                />
+                  <CalendarDaysIcon />
+                  <span className="truncate">Diário de hoje</span>
+                  {today === undefined ? (
+                    <span className="ml-auto shrink-0 text-2xs text-sidebar-muted-foreground">
+                      criar
+                    </span>
+                  ) : null}
+                </SidebarMenuButton>
               </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </>
-      ) : null}
-
-      {!searching && recents.length > 0 ? (
-        <>
-          <div className="flex items-center gap-1 px-2 pt-1 pb-1">
-            <ClockIcon className="size-3 text-sidebar-muted-foreground" />
-            <span className="text-2xs font-medium tracking-wide text-sidebar-muted-foreground">
-              Recentes
-            </span>
+              {dailies.map((page) => (
+                <SidebarMenuItem key={page.id}>
+                  <PageRow
+                    active={page.id === activePageId}
+                    onContextMenu={pageMenu.openMenu}
+                    onOpenPage={onOpenPage}
+                    page={page}
+                  />
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
           </div>
-          <SidebarMenu>
-            {recents.map((page) => (
-              <SidebarMenuItem key={page.id}>
-                <PageRow
-                  active={page.id === activePageId}
-                  onContextMenu={pageMenu.openMenu}
-                  onOpenPage={onOpenPage}
-                  page={page}
-                />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </>
-      ) : null}
 
-      {searching ? null : (
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={() => setTrashOpen(true)} size="sm">
-              <Trash2Icon />
-              <span className="truncate">Lixeira</span>
-              {trashCount === 0 ? null : (
-                <span className="ml-auto text-2xs text-sidebar-muted-foreground">{trashCount}</span>
-              )}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+          {livePages.length === 0 ? (
+            <div className="mx-2 rounded-lg border border-dashed border-sidebar-border p-3">
+              <p className="text-xs font-medium text-sidebar-foreground">Nenhuma página ainda</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Button
+                  onClick={() => startPage({ spaceId: firstSpaceId, parentId: null })}
+                  size="xs"
+                >
+                  <PlusIcon />
+                  Nova página
+                </Button>
+                <Button
+                  onClick={() =>
+                    startPage({ spaceId: firstSpaceId, parentId: null, templateId: "board" })
+                  }
+                  size="xs"
+                  variant="outline"
+                >
+                  <LayoutGridIcon />
+                  Quadro
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-3">
+            {group.spaces.map((space) => {
+              const tree = buildPageTree(group.pages, space.id);
+              const spacePages = livePages.filter((page) => page.spaceId === space.id).length;
+              const expanded = collapsedSpaces[space.id] !== true;
+              return (
+                <div className="flex flex-col gap-1" key={space.id}>
+                  <div
+                    className="flex h-8 items-center gap-1 rounded-md pr-1 pl-1 hover:bg-sidebar-row-hover"
+                    onContextMenu={(event) => spaceMenu.openMenu(event, space)}
+                  >
+                    <button
+                      aria-expanded={expanded}
+                      aria-label={expanded ? `Recolher ${space.name}` : `Expandir ${space.name}`}
+                      className="flex size-5 shrink-0 items-center justify-center rounded-sm text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      onClick={() =>
+                        setCollapsedSpaces((current) => ({
+                          ...current,
+                          [space.id]: expanded,
+                        }))
+                      }
+                      type="button"
+                    >
+                      <ChevronRightIcon
+                        className={cn("size-3.5 transition-transform", expanded && "rotate-90")}
+                      />
+                    </button>
+                    <span aria-hidden className="text-sm leading-none">
+                      {space.icon}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-sidebar-foreground">
+                      {space.name}
+                    </span>
+                    <span className="text-2xs tabular-nums text-sidebar-muted-foreground">
+                      {spacePages}
+                    </span>
+                    <Button
+                      aria-label={`Nova página em ${space.name}`}
+                      onClick={() => startPage({ spaceId: space.id, parentId: null })}
+                      size="icon-xs"
+                      variant="ghost"
+                    >
+                      <PlusIcon />
+                    </Button>
+                  </div>
+                  {expanded ? (
+                    tree.length === 0 ? (
+                      <button
+                        className="ml-7 flex h-7 items-center gap-1 rounded-md px-1 text-left text-xs text-sidebar-muted-foreground outline-hidden hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        onClick={() => startPage({ spaceId: space.id, parentId: null })}
+                        type="button"
+                      >
+                        <PlusIcon className="size-3" />
+                        Nova página em {space.name}
+                      </button>
+                    ) : (
+                      <SidebarMenu>
+                        {tree.map((node) => (
+                          <TreeBranch
+                            activePageId={activePageId}
+                            depth={0}
+                            key={node.page.id}
+                            node={node}
+                            onOpenPage={onOpenPage}
+                            onPageContextMenu={pageMenu.openMenu}
+                          />
+                        ))}
+                      </SidebarMenu>
+                    )
+                  ) : null}
+                </div>
+              );
+            })}
+
+            <div className="px-2">
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton onClick={() => setSpaceDialogOpen(true)} size="sm">
+                    <FolderPlusIcon />
+                    <span>Novo espaço</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </div>
+          </div>
+
+          {favorites.length > 0 ? (
+            <div className="flex flex-col gap-1 px-2">
+              <SectionHeader count={favorites.length} label="Favoritos" />
+              <SidebarMenu>
+                {favorites.map((page) => (
+                  <SidebarMenuItem key={page.id}>
+                    <PageRow
+                      active={page.id === activePageId}
+                      onContextMenu={pageMenu.openMenu}
+                      onOpenPage={onOpenPage}
+                      page={page}
+                    />
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </div>
+          ) : null}
+
+          {recents.length > 0 ? (
+            <div className="flex flex-col gap-1 px-2">
+              <div className="flex items-center gap-1.5 px-2">
+                <ClockIcon className="size-3 text-sidebar-muted-foreground" />
+                <SectionLabel>Recentes</SectionLabel>
+              </div>
+              <SidebarMenu>
+                {recents.map((page) => (
+                  <SidebarMenuItem key={page.id}>
+                    <PageRow
+                      active={page.id === activePageId}
+                      onContextMenu={pageMenu.openMenu}
+                      onOpenPage={onOpenPage}
+                      page={page}
+                    />
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-0.5 px-2">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => setTrashOpen(true)} size="sm">
+                  <Trash2Icon />
+                  <span>Lixeira</span>
+                  {trashCount === 0 ? null : (
+                    <span className="ml-auto text-2xs tabular-nums text-sidebar-muted-foreground">
+                      {trashCount}
+                    </span>
+                  )}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </div>
+        </>
       )}
 
       <GroupPageTrashDialog
@@ -531,7 +613,15 @@ export function GroupPagesSidebar({
             label: "Nova página",
             icon: <FilePlus2Icon />,
             disabled: group.spaces.length === 0,
-            onSelect: () => setPageDraft({ spaceId: group.spaces[0]?.id ?? "", parentId: null }),
+            onSelect: () => startPage({ spaceId: firstSpaceId, parentId: null }),
+          },
+          {
+            id: "new-board",
+            label: "Novo quadro",
+            icon: <FilePlus2Icon />,
+            disabled: group.spaces.length === 0,
+            onSelect: () =>
+              startPage({ spaceId: firstSpaceId, parentId: null, templateId: "board" }),
           },
         ]}
         onClose={sectionMenu.closeMenu}
@@ -549,6 +639,7 @@ export function GroupPagesSidebar({
       <CreatePageDialog
         defaultParentId={pageDraft?.parentId ?? null}
         defaultSpaceId={pageDraft?.spaceId}
+        defaultTemplateId={pageDraft?.templateId}
         group={group}
         onCreated={(pageId) => {
           setPageDraft(null);
