@@ -28,6 +28,7 @@ import {
   Settings2Icon,
   ShieldCheckIcon,
   SmartphoneIcon,
+  UsersIcon,
   WrenchIcon,
   XIcon,
 } from "lucide-react";
@@ -105,6 +106,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/maintenance": WrenchIcon,
   "/settings/labs": FlaskConicalIcon,
   "/settings/about": InfoIcon,
+  "/settings/groups": UsersIcon,
   "/settings/archived": ArchiveIcon,
 };
 

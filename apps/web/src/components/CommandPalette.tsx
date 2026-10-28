@@ -71,6 +71,7 @@ import {
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
+  UsersIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
 import {
@@ -1519,6 +1520,17 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:groups",
+    searchTerms: ["groups", "grupos", "channels", "canais", "agents", "agentes", "team chat"],
+    title: "Open groups",
+    icon: <UsersIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/groups" });
+    },
+  });
 
   actionItems.push({
     kind: "action",

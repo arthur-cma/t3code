@@ -36,6 +36,7 @@ export type SettingsPath =
   | "/settings/maintenance"
   | "/settings/labs"
   | "/settings/about"
+  | "/settings/groups"
   | "/settings/archived";
 
 export type SettingsSearchScope =
@@ -104,6 +105,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/maintenance": "Maintenance",
   "/settings/labs": "Labs",
   "/settings/about": "About",
+  "/settings/groups": "Groups",
   "/settings/archived": "Archive",
 };
 
@@ -128,6 +130,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     paths: [
       "/settings/providers",
       "/settings/threads",
+      "/settings/groups",
       "/settings/browser",
       "/settings/devices",
       "/settings/scheduled-tasks",
@@ -1120,6 +1123,29 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "groups-reply-mode",
+    title: "Group reply mode",
+    to: "/settings/groups",
+    targetId: "groups",
+    searchTerms: [
+      "groups channels agents mention automatic auto respond replies team chat discord",
+    ],
+  },
+  {
+    id: "groups-permissions",
+    title: "Group agent permissions",
+    to: "/settings/groups",
+    targetId: "groups",
+    searchTerms: ["groups runtime mode approval full access sandbox permissions agents"],
+  },
+  {
+    id: "groups-reset",
+    title: "Reset groups",
+    to: "/settings/groups",
+    targetId: "groups",
+    searchTerms: ["groups delete reset clear channels transcripts"],
+  },
+  {
     id: "archive",
     title: "Archived threads",
     to: "/settings/archived",
@@ -1152,6 +1178,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/maintenance": null,
   "/settings/labs": null,
   "/settings/about": null,
+  "/settings/groups": null,
   "/settings/archived": "project-defaults",
 };
 

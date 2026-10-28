@@ -29,6 +29,8 @@ import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { isGroupsPath } from "../../groups/groupRoutes";
+import { MainMenu } from "../groups/MainMenu";
 import { observeResize } from "~/lib/observeResize";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
@@ -72,6 +74,9 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           </div>
         ) : null}
       </div>
+      <div className="relative z-10 flex shrink-0 items-center">
+        <MainMenu />
+      </div>
     </div>
   );
 });
@@ -101,14 +106,17 @@ export function SidebarBrandWidthProbe({
 }
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+  const inGroupsArea = useLocation({
+    select: (location) => isGroupsPath(location.pathname),
+  });
   return (
     <Link
-      aria-label="Go to threads"
+      aria-label={inGroupsArea ? "Go to groups" : "Go to threads"}
       className={cn(
         "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset md:flex",
         onBackdrop ? "text-white" : "text-foreground",
       )}
-      to="/"
+      to={inGroupsArea ? "/groups" : "/"}
     >
       <SidebarBrandMark onBackdrop={onBackdrop} />
     </Link>
