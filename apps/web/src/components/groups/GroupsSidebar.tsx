@@ -1,20 +1,26 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { BotIcon, HashIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import { BotIcon, HashIcon, MessageSquareIcon, PlusIcon, SettingsIcon } from "lucide-react";
 import { useState } from "react";
 
-import { useEnvironmentProviders } from "../../state/environments";
 import { isElectron } from "../../env";
-import { cn } from "../../lib/utils";
 import { groupInitials } from "../../groups/groupLogic";
-import { useGroups } from "../../groups/groupStore";
+import {
+  dmChannelForMember,
+  firstTextChannel,
+  textChannels,
+  useGroups,
+  useGroupsStore,
+} from "../../groups/groupStore";
 import { parseGroupsLocation } from "../../groups/groupRoutes";
 import { GROUP_ACCENT_CLASSES, GROUP_REPLY_MODE_LABELS } from "../../groups/types";
-import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { cn } from "../../lib/utils";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
+import { useEnvironmentProviders } from "../../state/environments";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
 import {
   SidebarContent,
   SidebarGroup,
@@ -50,6 +56,14 @@ export function GroupsSidebar() {
       )
     : [];
 
+  const openChannel = (targetGroupId: string, targetChannelId: string) => {
+    void navigate({
+      to: "/groups/$groupId",
+      params: { groupId: targetGroupId },
+      search: { channel: targetChannelId },
+    });
+  };
+
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
@@ -83,18 +97,14 @@ export function GroupsSidebar() {
             <SidebarMenu>
               {groups.map((group) => {
                 const isActive = group.id === groupId;
-                const firstChannel = group.channels[0];
+                const firstChannel = firstTextChannel(group);
                 return (
                   <SidebarMenuItem key={group.id}>
                     <SidebarMenuButton
                       isActive={isActive}
                       onClick={() => {
-                        if (firstChannel === undefined) return;
-                        void navigate({
-                          to: "/groups/$groupId",
-                          params: { groupId: group.id },
-                          search: { channel: firstChannel.id },
-                        });
+                        if (firstChannel === null) return;
+                        openChannel(group.id, firstChannel.id);
                       }}
                     >
                       <span
@@ -121,17 +131,11 @@ export function GroupsSidebar() {
                 <SectionLabel>Canais</SectionLabel>
               </div>
               <SidebarMenu>
-                {activeGroup.channels.map((channel) => (
+                {textChannels(activeGroup).map((channel) => (
                   <SidebarMenuItem key={channel.id}>
                     <SidebarMenuButton
                       isActive={channel.id === channelId}
-                      onClick={() => {
-                        void navigate({
-                          to: "/groups/$groupId",
-                          params: { groupId: activeGroup.id },
-                          search: { channel: channel.id },
-                        });
-                      }}
+                      onClick={() => openChannel(activeGroup.id, channel.id)}
                       size="sm"
                     >
                       <HashIcon />
@@ -140,6 +144,44 @@ export function GroupsSidebar() {
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
+            </SidebarGroup>
+
+            <SidebarGroup>
+              <SectionLabel>Mensagens diretas</SectionLabel>
+              {activeGroup.members.length === 0 ? (
+                <p className="px-2 pb-1 text-xs leading-relaxed text-sidebar-muted-foreground">
+                  Adicione agentes para conversar em particular.
+                </p>
+              ) : (
+                <SidebarMenu>
+                  {activeGroup.members.map((member) => {
+                    const dm = dmChannelForMember(activeGroup, member.id);
+                    return (
+                      <SidebarMenuItem key={member.id}>
+                        <SidebarMenuButton
+                          isActive={dm !== null && dm.id === channelId}
+                          onClick={() => {
+                            const channelIdForDm =
+                              dm?.id ?? useGroupsStore.getState().openDm(activeGroup.id, member.id);
+                            if (channelIdForDm === null || channelIdForDm === undefined) return;
+                            openChannel(activeGroup.id, channelIdForDm);
+                          }}
+                          size="sm"
+                        >
+                          <MessageSquareIcon />
+                          <span className="truncate">{member.name}</span>
+                          {member.autoRespond ? (
+                            <span
+                              aria-label="Responde automaticamente"
+                              className="ml-auto size-1.5 shrink-0 rounded-full bg-success"
+                            />
+                          ) : null}
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              )}
             </SidebarGroup>
 
             <SidebarGroup>
@@ -171,11 +213,8 @@ export function GroupsSidebar() {
                             <BotIcon className="size-3.5 shrink-0" />
                           )}
                           <span className="min-w-0 flex-1 truncate">{member.name}</span>
-                          {member.autoRespond ? (
-                            <span
-                              aria-label="Responde automaticamente"
-                              className="size-1.5 shrink-0 rounded-full bg-success"
-                            />
+                          {member.role.length > 0 ? (
+                            <span className="shrink-0 truncate text-2xs">{member.role}</span>
                           ) : null}
                         </div>
                       </SidebarMenuItem>

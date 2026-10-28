@@ -58,7 +58,9 @@ export function useGroupSend(
         input: {
           threadId,
           projectId: targetProject.id,
-          title: truncateTitle(`Grupo ${group.name} · #${channel.name}`),
+          title: truncateTitle(
+            channel.kind === "dm" ? `DM ${member.name}` : `Grupo ${group.name} · #${channel.name}`,
+          ),
           modelSelection,
           runtimeMode: group.runtimeMode,
           interactionMode: "default",
@@ -119,11 +121,14 @@ export function useGroupSend(
       members: group.members,
       text: trimmed,
       replyMode: group.replyMode,
+      directMemberId: channel.kind === "dm" ? channel.memberId : null,
     });
     if (recipients.length === 0) {
       store.appendSystemMessage(
         channel.id,
-        "Nenhum agente foi chamado. Use @handle para mencionar quem deve responder.",
+        channel.kind === "dm"
+          ? "Este agente não está mais no grupo."
+          : "Nenhum agente foi chamado. Use @handle para mencionar quem deve responder.",
       );
       return;
     }

@@ -9,6 +9,8 @@ import {
   type Group,
   type GroupAccent,
   type GroupChannel,
+  type GroupChannelKind,
+  type GroupMeeting,
   type GroupMember,
   type GroupMessage,
   type GroupProjectRef,
@@ -17,14 +19,19 @@ import {
 } from "./types";
 
 const GROUPS_STORAGE_KEY = "t3code:groups:v1";
-const GROUPS_STORAGE_VERSION = 1;
+const GROUPS_STORAGE_VERSION = 2;
 
 function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
 }
 
-function createGroupChannel(name: string, topic = ""): GroupChannel {
-  return { id: createId("channel"), name, topic };
+function createGroupChannel(
+  name: string,
+  topic = "",
+  kind: GroupChannelKind = "text",
+  memberId: string | null = null,
+): GroupChannel {
+  return { id: createId("channel"), name, topic, kind, memberId };
 }
 
 function createGroupMember(member: Omit<GroupMember, "id">): GroupMember {
@@ -59,6 +66,7 @@ interface GroupsState {
     patch: Partial<Omit<GroupChannel, "id">>,
   ) => void;
   deleteChannel: (groupId: string, channelId: string) => boolean;
+  openDm: (groupId: string, memberId: string) => string | null;
 
   addMember: (groupId: string, member: Omit<GroupMember, "id">) => string;
   updateMember: (
@@ -67,6 +75,14 @@ interface GroupsState {
     patch: Partial<Omit<GroupMember, "id">>,
   ) => void;
   removeMember: (groupId: string, memberId: string) => void;
+
+  startMeeting: (groupId: string, title?: string) => string;
+  updateMeeting: (
+    groupId: string,
+    meetingId: string,
+    patch: Partial<Omit<GroupMeeting, "id">>,
+  ) => void;
+  deleteMeeting: (groupId: string, meetingId: string) => void;
 
   addMessage: (message: GroupMessage) => void;
   appendUserMessage: (input: {
@@ -103,6 +119,59 @@ export function threadLinksForChannel(
   return links.filter((link) => link.channelId === channelId);
 }
 
+export function textChannels(group: Group): GroupChannel[] {
+  return group.channels.filter((channel) => channel.kind !== "dm");
+}
+
+export function dmChannels(group: Group): GroupChannel[] {
+  return group.channels.filter((channel) => channel.kind === "dm");
+}
+
+export function dmChannelForMember(group: Group, memberId: string): GroupChannel | null {
+  return (
+    group.channels.find((channel) => channel.kind === "dm" && channel.memberId === memberId) ?? null
+  );
+}
+
+export function firstTextChannel(group: Group): GroupChannel | null {
+  return textChannels(group)[0] ?? group.channels[0] ?? null;
+}
+
+/** Persisted v1 groups predate DMs, roles, hierarchy and meetings. */
+function migrateGroups(persisted: unknown): Group[] {
+  if (!Array.isArray(persisted)) return [];
+  return persisted.flatMap((value): Group[] => {
+    if (typeof value !== "object" || value === null) return [];
+    const group = value as Partial<Group>;
+    if (typeof group.id !== "string" || typeof group.name !== "string") return [];
+    const members = (group.members ?? []).map((member) => ({
+      ...member,
+      role: member.role ?? "",
+      reportsTo: member.reportsTo ?? null,
+    }));
+    return [
+      {
+        ...group,
+        id: group.id,
+        name: group.name,
+        description: group.description ?? "",
+        accent: group.accent ?? "violet",
+        replyMode: group.replyMode ?? "mentions",
+        runtimeMode: group.runtimeMode ?? "full-access",
+        projectRef: group.projectRef ?? null,
+        members,
+        channels: (group.channels ?? []).map((channel) => ({
+          ...channel,
+          kind: channel.kind ?? "text",
+          memberId: channel.memberId ?? null,
+        })),
+        meetings: group.meetings ?? [],
+        createdAt: group.createdAt ?? new Date().toISOString(),
+      },
+    ];
+  });
+}
+
 export const useGroupsStore = create<GroupsState>()(
   persist(
     (set, get) => ({
@@ -126,6 +195,7 @@ export const useGroupsStore = create<GroupsState>()(
           projectRef: input.projectRef,
           channels: [createGroupChannel("geral", "Conversa principal do grupo")],
           members: [],
+          meetings: [],
           createdAt: new Date().toISOString(),
         };
         set((state) => ({
@@ -169,7 +239,7 @@ export const useGroupsStore = create<GroupsState>()(
         if (trimmed.length === 0) return null;
         const group = get().groups.find((candidate) => candidate.id === groupId);
         if (!group) return null;
-        const duplicate = group.channels.some(
+        const duplicate = textChannels(group).some(
           (channel) => channel.name.toLowerCase() === trimmed.toLowerCase(),
         );
         if (duplicate) return null;
@@ -201,7 +271,10 @@ export const useGroupsStore = create<GroupsState>()(
 
       deleteChannel: (groupId, channelId) => {
         const group = get().groups.find((candidate) => candidate.id === groupId);
-        if (!group || group.channels.length <= 1) return false;
+        if (!group) return false;
+        const channel = group.channels.find((candidate) => candidate.id === channelId);
+        if (channel === undefined) return false;
+        if (channel.kind !== "dm" && textChannels(group).length <= 1) return false;
         set((state) => {
           const messages = { ...state.messages };
           delete messages[channelId];
@@ -210,7 +283,7 @@ export const useGroupsStore = create<GroupsState>()(
               candidate.id === groupId
                 ? {
                     ...candidate,
-                    channels: candidate.channels.filter((channel) => channel.id !== channelId),
+                    channels: candidate.channels.filter((entry) => entry.id !== channelId),
                   }
                 : candidate,
             ),
@@ -219,6 +292,29 @@ export const useGroupsStore = create<GroupsState>()(
           };
         });
         return true;
+      },
+
+      openDm: (groupId, memberId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        if (group === undefined) return null;
+        const member = group.members.find((candidate) => candidate.id === memberId);
+        if (member === undefined) return null;
+        const existing = dmChannelForMember(group, memberId);
+        if (existing !== null) return existing.id;
+        const channel = createGroupChannel(
+          member.handle,
+          `Conversa direta com ${member.name}`,
+          "dm",
+          memberId,
+        );
+        set((state) => ({
+          groups: state.groups.map((candidate) =>
+            candidate.id === groupId
+              ? { ...candidate, channels: [...candidate.channels, channel] }
+              : candidate,
+          ),
+        }));
+        return channel.id;
       },
 
       addMember: (groupId, member) => {
@@ -247,13 +343,80 @@ export const useGroupsStore = create<GroupsState>()(
       },
 
       removeMember: (groupId, memberId) => {
+        const group = get().groups.find((candidate) => candidate.id === groupId);
+        const dmChannelIds = new Set(
+          (group?.channels ?? [])
+            .filter((channel) => channel.kind === "dm" && channel.memberId === memberId)
+            .map((channel) => channel.id),
+        );
+        set((state) => {
+          const messages = { ...state.messages };
+          for (const channelId of dmChannelIds) delete messages[channelId];
+          return {
+            groups: state.groups.map((candidate) =>
+              candidate.id === groupId
+                ? {
+                    ...candidate,
+                    channels: candidate.channels.filter((channel) => !dmChannelIds.has(channel.id)),
+                    members: candidate.members
+                      .filter((member) => member.id !== memberId)
+                      .map((member) =>
+                        member.reportsTo === memberId ? { ...member, reportsTo: null } : member,
+                      ),
+                  }
+                : candidate,
+            ),
+            messages,
+            links: state.links.filter(
+              (link) => link.memberId !== memberId && !dmChannelIds.has(link.channelId),
+            ),
+          };
+        });
+      },
+
+      startMeeting: (groupId, title) => {
+        const meeting: GroupMeeting = {
+          id: createId("meeting"),
+          title: title?.trim() || "Reunião",
+          startedAt: new Date().toISOString(),
+          endedAt: null,
+          agenda: [],
+          notes: "",
+          participants: [],
+        };
+        set((state) => ({
+          groups: state.groups.map((group) =>
+            group.id === groupId ? { ...group, meetings: [meeting, ...group.meetings] } : group,
+          ),
+        }));
+        return meeting.id;
+      },
+
+      updateMeeting: (groupId, meetingId, patch) => {
         set((state) => ({
           groups: state.groups.map((group) =>
             group.id === groupId
-              ? { ...group, members: group.members.filter((member) => member.id !== memberId) }
+              ? {
+                  ...group,
+                  meetings: group.meetings.map((meeting) =>
+                    meeting.id === meetingId ? { ...meeting, ...patch } : meeting,
+                  ),
+                }
               : group,
           ),
-          links: state.links.filter((link) => link.memberId !== memberId),
+        }));
+      },
+
+      deleteMeeting: (groupId, meetingId) => {
+        set((state) => ({
+          groups: state.groups.map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  meetings: group.meetings.filter((meeting) => meeting.id !== meetingId),
+                }
+              : group,
+          ),
         }));
       },
 
@@ -359,6 +522,13 @@ export const useGroupsStore = create<GroupsState>()(
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
+      migrate: (persisted, version) => {
+        if (version < 2) {
+          const state = persisted as { groups?: unknown } | null;
+          return { ...state, groups: migrateGroups(state?.groups) } as unknown as GroupsState;
+        }
+        return persisted as GroupsState;
+      },
       partialize: (state) => ({
         groups: state.groups,
         activeGroupId: state.activeGroupId,

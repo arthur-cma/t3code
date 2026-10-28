@@ -63,6 +63,8 @@ describe("groupStore", () => {
       driverKind: "codex",
       model: "gpt-5",
       autoRespond: true,
+      role: "Design",
+      reportsTo: null,
     });
 
     expect(store().groups[0]?.members).toHaveLength(1);

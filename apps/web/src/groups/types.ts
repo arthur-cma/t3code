@@ -6,6 +6,8 @@ export type GroupAccent = "violet" | "emerald" | "amber" | "sky" | "rose" | "sla
 
 export type GroupMessageKind = "user" | "agent" | "system";
 
+export type GroupChannelKind = "text" | "dm";
+
 export interface GroupProjectRef {
   environmentId: string;
   projectId: string;
@@ -15,6 +17,8 @@ export interface GroupChannel {
   id: string;
   name: string;
   topic: string;
+  kind: GroupChannelKind;
+  memberId: string | null;
 }
 
 export interface GroupMember {
@@ -25,6 +29,24 @@ export interface GroupMember {
   driverKind: string;
   model: string;
   autoRespond: boolean;
+  role: string;
+  reportsTo: string | null;
+}
+
+export interface GroupMeetingAgendaItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+export interface GroupMeeting {
+  id: string;
+  title: string;
+  startedAt: string;
+  endedAt: string | null;
+  agenda: GroupMeetingAgendaItem[];
+  notes: string;
+  participants: string[];
 }
 
 export interface Group {
@@ -37,6 +59,7 @@ export interface Group {
   projectRef: GroupProjectRef | null;
   channels: GroupChannel[];
   members: GroupMember[];
+  meetings: GroupMeeting[];
   createdAt: string;
 }
 
@@ -108,3 +131,12 @@ export const GROUP_ACCENT_CLASSES: Readonly<Record<GroupAccent, string>> = {
   rose: "bg-rose-500/15 text-rose-600 dark:text-rose-300",
   slate: "bg-slate-500/15 text-slate-600 dark:text-slate-300",
 };
+
+export const GROUP_MEMBER_ROLE_PRESETS: ReadonlyArray<string> = [
+  "Coordenação",
+  "Produto",
+  "Design",
+  "Engenharia",
+  "Pesquisa",
+  "Operações",
+];

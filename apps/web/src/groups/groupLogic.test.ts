@@ -10,7 +10,13 @@ import {
 } from "./groupLogic";
 import type { Group, GroupChannel, GroupMember } from "./types";
 
-const channel: GroupChannel = { id: "channel_1", name: "geral", topic: "" };
+const channel: GroupChannel = {
+  id: "channel_1",
+  name: "geral",
+  topic: "",
+  kind: "text",
+  memberId: null,
+};
 
 function member(overrides: Partial<GroupMember> & Pick<GroupMember, "id" | "handle">): GroupMember {
   return {
@@ -19,6 +25,8 @@ function member(overrides: Partial<GroupMember> & Pick<GroupMember, "id" | "hand
     driverKind: "codex",
     model: "gpt-5",
     autoRespond: false,
+    role: "",
+    reportsTo: null,
     ...overrides,
   };
 }
@@ -37,6 +45,7 @@ function group(members: GroupMember[]): Group {
     projectRef: null,
     channels: [channel],
     members,
+    meetings: [],
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }

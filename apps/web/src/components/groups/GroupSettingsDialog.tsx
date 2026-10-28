@@ -68,6 +68,7 @@ export function GroupSettingsDialog({
 
   const [memberName, setMemberName] = useState("");
   const [memberHandle, setMemberHandle] = useState("");
+  const [memberRole, setMemberRole] = useState("");
   const [memberInstanceId, setMemberInstanceId] = useState("");
   const [memberModel, setMemberModel] = useState("");
   const [memberAutoRespond, setMemberAutoRespond] = useState(false);
@@ -85,6 +86,7 @@ export function GroupSettingsDialog({
   const resetMemberForm = () => {
     setMemberName("");
     setMemberHandle("");
+    setMemberRole("");
     setMemberAutoRespond(false);
   };
 
@@ -103,6 +105,8 @@ export function GroupSettingsDialog({
       driverKind: selectedEntry.driverKind,
       model: selectedModel.slug,
       autoRespond: memberAutoRespond,
+      role: memberRole.trim(),
+      reportsTo: null,
     });
     resetMemberForm();
   };
@@ -236,50 +240,94 @@ export function GroupSettingsDialog({
                       (candidate) => candidate.instanceId === member.instanceId,
                     );
                     return (
-                      <li className="flex items-center gap-3 px-3 py-2" key={member.id}>
-                        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                          {entry ? (
-                            <ProviderInstanceIcon
-                              accentColor={entry.accentColor}
-                              acpRegistryAgentId={entry.acpRegistryAgentId}
-                              acpRegistryIconUrl={entry.acpRegistryIconUrl}
-                              badgeContent="none"
-                              displayName={entry.displayName}
-                              driverKind={entry.driverKind}
-                              size="compact"
-                            />
-                          ) : null}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline gap-2">
-                            <span className="truncate text-sm font-medium text-foreground">
-                              {member.name}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              @{member.handle}
-                            </span>
+                      <li className="flex flex-col gap-2 px-3 py-2" key={member.id}>
+                        <div className="flex items-center gap-3">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                            {entry ? (
+                              <ProviderInstanceIcon
+                                accentColor={entry.accentColor}
+                                acpRegistryAgentId={entry.acpRegistryAgentId}
+                                acpRegistryIconUrl={entry.acpRegistryIconUrl}
+                                badgeContent="none"
+                                displayName={entry.displayName}
+                                driverKind={entry.driverKind}
+                                size="compact"
+                              />
+                            ) : null}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-2">
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {member.name}
+                              </span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                @{member.handle}
+                              </span>
+                            </div>
+                            <p className="truncate text-xs text-muted-foreground">{member.model}</p>
                           </div>
-                          <p className="truncate text-xs text-muted-foreground">{member.model}</p>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Switch
+                              aria-label={`Resposta automática de ${member.name}`}
+                              checked={member.autoRespond}
+                              onCheckedChange={(checked) =>
+                                updateMember(group.id, member.id, { autoRespond: checked })
+                              }
+                              size="sm"
+                            />
+                            <Button
+                              aria-label={`Remover ${member.name}`}
+                              onClick={() => {
+                                removeMember(group.id, member.id);
+                              }}
+                              size="icon-xs"
+                              variant="ghost-destructive"
+                            >
+                              <Trash2Icon />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <Switch
-                            aria-label={`Resposta automática de ${member.name}`}
-                            checked={member.autoRespond}
-                            onCheckedChange={(checked) =>
-                              updateMember(group.id, member.id, { autoRespond: checked })
+                        <div className="grid gap-2 pl-10 sm:grid-cols-2">
+                          <Input
+                            aria-label={`Cargo de ${member.name}`}
+                            onChange={(event) =>
+                              updateMember(group.id, member.id, { role: event.target.value })
                             }
+                            placeholder="Cargo (ex.: Design)"
                             size="sm"
+                            value={member.role}
                           />
-                          <Button
-                            aria-label={`Remover ${member.name}`}
-                            onClick={() => {
-                              removeMember(group.id, member.id);
+                          <Select
+                            onValueChange={(value) => {
+                              if (typeof value !== "string") return;
+                              updateMember(group.id, member.id, {
+                                reportsTo: value === "none" ? null : value,
+                              });
                             }}
-                            size="icon-xs"
-                            variant="ghost-destructive"
+                            value={member.reportsTo ?? "none"}
                           >
-                            <Trash2Icon />
-                          </Button>
+                            <SelectTrigger
+                              aria-label={`Gestor de ${member.name}`}
+                              className="w-full"
+                              size="sm"
+                            >
+                              <SelectValue>
+                                {group.members.find(
+                                  (candidate) => candidate.id === member.reportsTo,
+                                )?.name ?? "Sem gestor"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectPopup align="start" alignItemWithTrigger={false}>
+                              <SelectItem value="none">Sem gestor</SelectItem>
+                              {group.members
+                                .filter((candidate) => candidate.id !== member.id)
+                                .map((candidate) => (
+                                  <SelectItem key={candidate.id} value={candidate.id}>
+                                    {candidate.name}
+                                  </SelectItem>
+                                ))}
+                            </SelectPopup>
+                          </Select>
                         </div>
                       </li>
                     );
@@ -315,6 +363,15 @@ export function GroupSettingsDialog({
                         placeholder="ana (opcional)"
                         size="sm"
                         value={memberHandle}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <FieldLabel>Cargo</FieldLabel>
+                      <Input
+                        onChange={(event) => setMemberRole(event.target.value)}
+                        placeholder="Design (opcional)"
+                        size="sm"
+                        value={memberRole}
                       />
                     </label>
                     <label className="flex flex-col gap-1">

@@ -2,6 +2,12 @@ import type { Group, GroupChannel, GroupMember, GroupReplyMode } from "./types";
 
 const MENTION_PATTERN = /@([a-z0-9][a-z0-9_-]*)/gi;
 
+export interface MentionQuery {
+  start: number;
+  end: number;
+  query: string;
+}
+
 export function normalizeHandle(value: string): string {
   return value
     .normalize("NFD")
@@ -11,6 +17,13 @@ export function normalizeHandle(value: string): string {
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-")
     .slice(0, 24);
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 export function uniqueHandle(base: string, existing: ReadonlyArray<string>): string {
@@ -36,11 +49,61 @@ export function parseMentions(text: string, members: ReadonlyArray<GroupMember>)
   return members.filter((member) => found.has(member));
 }
 
+/** The `@token` the caret currently sits in, if any. */
+export function findMentionQuery(text: string, caret: number): MentionQuery | null {
+  const clamped = Math.max(0, Math.min(caret, text.length));
+  const before = text.slice(0, clamped);
+  const at = before.lastIndexOf("@");
+  if (at === -1) return null;
+  const previous = at === 0 ? "" : (before[at - 1] ?? "");
+  if (previous.length > 0 && !/\s/.test(previous)) return null;
+  const token = before.slice(at + 1);
+  if (/\s/.test(token) || token.length > 32) return null;
+  return { start: at, end: clamped, query: token };
+}
+
+export function applyMention(
+  text: string,
+  mention: MentionQuery,
+  handle: string,
+): { text: string; caret: number } {
+  const inserted = `@${handle} `;
+  const next = `${text.slice(0, mention.start)}${inserted}${text.slice(mention.end)}`;
+  return { text: next, caret: mention.start + inserted.length };
+}
+
+export function filterMentionCandidates(
+  members: ReadonlyArray<GroupMember>,
+  query: string,
+  limit = 8,
+): GroupMember[] {
+  const needle = normalizeSearch(query.trim());
+  if (needle.length === 0) return members.slice(0, limit);
+  const scored = members.flatMap((member) => {
+    const handle = normalizeSearch(member.handle);
+    const name = normalizeSearch(member.name);
+    const role = normalizeSearch(member.role);
+    if (handle.startsWith(needle)) return [{ member, score: 0 }];
+    if (name.startsWith(needle)) return [{ member, score: 1 }];
+    if (handle.includes(needle)) return [{ member, score: 2 }];
+    if (name.includes(needle)) return [{ member, score: 3 }];
+    if (role.includes(needle)) return [{ member, score: 4 }];
+    return [];
+  });
+  scored.sort((left, right) => left.score - right.score);
+  return scored.slice(0, limit).map((entry) => entry.member);
+}
+
 export function resolveResponders(input: {
   members: ReadonlyArray<GroupMember>;
   text: string;
   replyMode: GroupReplyMode;
+  directMemberId?: string | null;
 }): GroupMember[] {
+  if (input.directMemberId !== undefined && input.directMemberId !== null) {
+    const direct = input.members.find((member) => member.id === input.directMemberId);
+    return direct === undefined ? [] : [direct];
+  }
   const mentioned = parseMentions(input.text, input.members);
   if (input.replyMode === "mentions") return mentioned;
   const automatic = input.members.filter((member) => member.autoRespond);
@@ -67,6 +130,45 @@ export function groupInitials(name: string): string {
   return `${words[0]![0] ?? ""}${words[1]![0] ?? ""}`.toUpperCase();
 }
 
+export interface OrgChartNode {
+  member: GroupMember;
+  children: OrgChartNode[];
+}
+
+/** Builds a reporting tree from `reportsTo`, keeping every member exactly once. */
+export function buildOrgChart(members: ReadonlyArray<GroupMember>): OrgChartNode[] {
+  const byId = new Map(members.map((member) => [member.id, member]));
+  const childrenByParent = new Map<string, GroupMember[]>();
+  const roots: GroupMember[] = [];
+
+  for (const member of members) {
+    const parentId = member.reportsTo;
+    if (parentId === null || parentId === undefined || parentId === member.id) {
+      roots.push(member);
+      continue;
+    }
+    const parent = byId.get(parentId);
+    if (parent === undefined) {
+      roots.push(member);
+      continue;
+    }
+    const siblings = childrenByParent.get(parentId) ?? [];
+    siblings.push(member);
+    childrenByParent.set(parentId, siblings);
+  }
+
+  const build = (member: GroupMember, seen: ReadonlySet<string>): OrgChartNode => {
+    if (seen.has(member.id)) return { member, children: [] };
+    const nextSeen = new Set(seen).add(member.id);
+    return {
+      member,
+      children: (childrenByParent.get(member.id) ?? []).map((child) => build(child, nextSeen)),
+    };
+  };
+
+  return roots.map((member) => build(member, new Set()));
+}
+
 export function buildAgentPrompt(input: {
   group: Group;
   channel: GroupChannel;
@@ -78,10 +180,11 @@ export function buildAgentPrompt(input: {
   const body = renderMentionsForPrompt(input.text, input.group.members);
   if (!input.isNewThread || !input.includeGroupContext) return body;
   const description = input.group.description.trim();
+  const isDm = input.channel.kind === "dm";
   return [
     `Você é ${input.member.name}, um agente participante do grupo "${input.group.name}" no T3 Code.`,
     description.length > 0 ? `Sobre o grupo: ${description}` : null,
-    `Canal atual: #${input.channel.name}.`,
+    isDm ? "Esta é uma conversa direta com o usuário." : `Canal atual: #${input.channel.name}.`,
     'Responda como em um chat de equipe: direto, útil e sem prefixos como "Assistente:".',
     "",
     body,

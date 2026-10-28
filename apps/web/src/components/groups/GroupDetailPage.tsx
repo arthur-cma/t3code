@@ -3,7 +3,7 @@ import { UsersIcon } from "lucide-react";
 import { useEffect } from "react";
 
 import { isElectron } from "../../env";
-import { useGroupsStore } from "../../groups/groupStore";
+import { useGroupsStore, firstTextChannel } from "../../groups/groupStore";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
 import {
@@ -34,7 +34,7 @@ export function GroupDetailPage({
     group === null
       ? null
       : (group.channels.find((candidate) => candidate.id === channelId) ?? null);
-  const fallbackChannel = group?.channels[0] ?? null;
+  const fallbackChannel = group === null ? null : firstTextChannel(group);
 
   // Keep the URL in sync with real group state instead of rendering an invalid channel.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- redirects stale URLs to a valid channel
